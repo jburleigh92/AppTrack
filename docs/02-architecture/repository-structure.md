@@ -7,10 +7,12 @@ It reflects the backend service, browser extension, and the complete documentati
 
 ## Top-Level Structure
 
+```
 AppTrack/
 ├── backend/  
 ├── extension/  
 └── docs/  
+```
 
 Each section is expanded in detail below.
 
