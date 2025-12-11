@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## v0.1.1 — 2025-12-11
+
+### Fixed
+- Corrected database initialization flow to ensure `init_db()` is called before any DB access.
+- Repaired `/health/ready` dependency by using the proper `get_db` import.
+- Fixed environment variable loading by moving `.env` to `backend/app/core` and updating `config.py`.
+- Resolved missing or incorrect imports in `timeline_service` (added backwards-compatibility wrappers).
+- Updated timeline schemas to reflect the actual models in use.
+- Added "*.db" to `.gitignore` to prevent SQLite database files from being committed.
+
+
+
 ## [Unreleased]
 ### Added
 - (Place future changes here before next release)
