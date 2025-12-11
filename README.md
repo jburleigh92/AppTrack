@@ -149,8 +149,6 @@ AppTrack/
 │   └── (browser extension source)
 └── docs/
     └── (documentation set: product, architecture, system design, APIs, schemas, modules, implementation plan, testing, observability, operations, prompts)
-
-
 ````
 
 Full documentation is in the `/docs` directory.
