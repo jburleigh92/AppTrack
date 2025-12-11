@@ -60,95 +60,11 @@ See full architecture docs in `docs/02-architecture`.
 ---
 
 ## Repository Structure
-
 ```
 AppTrack/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py
-│   │   ├── api/
-│   │   │   ├── __init__.py
-│   │   │   ├── routes/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── applications.py
-│   │   │   │   ├── job_postings.py
-│   │   │   │   ├── resumes.py
-│   │   │   │   ├── analysis.py
-│   │   │   │   ├── timeline.py
-│   │   │   │   ├── queue.py
-│   │   │   │   ├── settings.py
-│   │   │   │   ├── capture.py
-│   │   │   │   └── internal.py
-│   │   │   ├── dependencies/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── auth.py
-│   │   │   │   └── database.py
-│   │   │   └── error_handlers/
-│   │   │       ├── __init__.py
-│   │   │       └── handlers.py
-│   │   ├── core/
-│   │   │   ├── __init__.py
-│   │   │   ├── config.py
-│   │   │   ├── security.py
-│   │   │   └── logging.py
-│   │   ├── db/
-│   │   │   ├── __init__.py
-│   │   │   ├── base.py
-│   │   │   ├── session.py
-│   │   │   ├── models/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── application.py
-│   │   │   │   ├── job_posting.py
-│   │   │   │   ├── resume.py
-│   │   │   │   ├── analysis.py
-│   │   │   │   ├── timeline.py
-│   │   │   │   ├── queue.py
-│   │   │   │   ├── email.py
-│   │   │   │   └── settings.py
-│   │   │   └── migrations/
-│   │   │       ├── env.py
-│   │   │       └── versions/
-│   │   ├── schemas/
-│   │   │   ├── __init__.py
-│   │   │   ├── application.py
-│   │   │   ├── job_posting.py
-│   │   │   ├── resume.py
-│   │   │   ├── analysis.py
-│   │   │   ├── timeline.py
-│   │   │   ├── queue.py
-│   │   │   ├── settings.py
-│   │   │   └── common.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── application_service.py
-│   │   │   ├── scraping/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── scraper.py
-│   │   │   │   └── extractor.py
-│   │   │   ├── parsing/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── pdf_parser.py
-│   │   │   │   ├── docx_parser.py
-│   │   │   │   └── text_parser.py
-│   │   │   └── analysis/
-│   │   │       ├── __init__.py
-│   │   │       ├── llm_client.py
-│   │   │       └── analyzer.py
-│   │   └── workers/
-│   │       ├── __init__.py
-│   │       ├── scraper_worker.py
-│   │       ├── parser_worker.py
-│   │       └── analysis_worker.py
-│   ├── alembic.ini
-│   ├── pyproject.toml
-│   ├── .env.example
-│   └── README.md
-│
-├── extension/
-│   └── (browser extension source)
-└── docs/
-    └── (documentation set: product, architecture, system design, APIs, schemas, modules, implementation plan, testing, observability, operations, prompts)
+├── backend/          # FastAPI backend
+├── extension/        # Browser extension source
+└── docs/             # Full engineering documentation
 ````
 
 Full documentation is in the `/docs` directory.
