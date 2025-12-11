@@ -146,3 +146,70 @@ def log_analysis_failed(
             "details": details
         }
     )
+
+# Backward compatibility wrapper
+def log_application_created_sync(db: Session, application_id: UUID, source: str):
+    return record_application_created_event(db, application_id, source)
+
+def log_browser_capture_sync(db: Session, application_id: UUID, url: str):
+    """Backward-compatibility wrapper for browser capture."""
+    return record_event(
+        db=db,
+        application_id=application_id,
+        event_type="application_captured_browser",
+        description=f"Application captured from browser: {url}",
+        event_data={"url": url}
+    )
+def create_event_sync(
+    db: Session,
+    application_id: UUID,
+    event_type: str,
+    description: str,
+    event_data: Optional[dict] = None
+):
+    """Backward-compatibility wrapper for generic event creation."""
+    return record_event(
+        db=db,
+        application_id=application_id,
+        event_type=event_type,
+        description=description,
+        event_data=event_data or {}
+    )
+
+# ---------------------------------------------------------------------------
+# Functions expected by timeline routes
+# ---------------------------------------------------------------------------
+
+async def create_event(
+    db: Session,
+    application_id: UUID,
+    event_type: str,
+    event_data: Optional[dict] = None,
+    occurred_at: Optional[datetime] = None
+):
+    """Create a timeline event (async API route handler)."""
+    event = TimelineEvent(
+        application_id=application_id,
+        event_type=event_type,
+        event_data=event_data or {},
+        occurred_at=occurred_at or datetime.utcnow()
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def list_events_for_application(
+    db: Session,
+    application_id: UUID,
+    limit: int = 100
+):
+    """Return timeline events for an application in chronological order."""
+    return (
+        db.query(TimelineEvent)
+        .filter(TimelineEvent.application_id == application_id)
+        .order_by(TimelineEvent.occurred_at.asc())
+        .limit(limit)
+        .all()
+    )
