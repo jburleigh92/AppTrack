@@ -1,11 +1,3 @@
----
-title: "Job Application Tracker – Product Requirements Document (PRD)"
-version: 1.0
-status: Draft
-last_updated: 2025-12-10
-owner: "Jason Burleigh"
----
-
 # Job Application Tracker – Product Requirements Document (PRD)
 
 ## Table of Contents
