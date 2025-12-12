@@ -47,13 +47,13 @@ AppTrack is a comprehensive job application tracking system designed to help job
 AppTrack follows a modern, scalable architecture with clear separation of concerns:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Frontend (Future)                             │
-│             Browser Extension + Web Dashboard                    │
-└────────────────────────┬────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                    Frontend (Future)                           │
+│             Browser Extension + Web Dashboard                  │
+└────────────────────────┬───────────────────────────────────────┘
                          │ REST API
-┌────────────────────────▼────────────────────────────────────────┐
-│                    Backend API (FastAPI)                         │
+┌────────────────────────▼───────────────────────────────────────┐
+│                    Backend API (FastAPI)                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │   Ingestion  │  │  Correlation │  │   Scraping   │          │
 │  │   Pipelines  │  │    Engine    │  │   Service    │          │
@@ -62,12 +62,12 @@ AppTrack follows a modern, scalable architecture with clear separation of concer
 │  │  AI Analysis │  │   Timeline   │  │    Export    │          │
 │  │    Engine    │  │   Events     │  │    Layer     │          │
 │  └──────────────┘  └──────────────┘  └──────────────┘          │
-└────────────────────────┬────────────────────────────────────────┘
+└────────────────────────┬───────────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
-│                   PostgreSQL Database                            │
-│        Applications • Job Postings • Analysis • Timeline         │
-└──────────────────────────────────────────────────────────────────┘
+│                   PostgreSQL Database                           │
+│        Applications • Job Postings • Analysis • Timeline        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Core Components
