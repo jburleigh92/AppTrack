@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - GitHub Codespaces deployment and testing environment
 - Complete Phase 1-4 integration testing in production-like environment
+- Comprehensive testing documentation in `TESTING-NOTES.md`
+- Functional scraper worker with queue polling system
+- Background job processing for web scraping tasks
+- Job status tracking (pending → processing → completed/failed)
+- Error handling and logging for scraper failures
 
 ### Fixed
 - Database session initialization in `app/db/session.py` - moved from dynamic initialization to module-level singleton
@@ -23,10 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed timeline service to use synchronous functions (`list_events_for_application_sync`) instead of async
 - Resolved CSV export logging conflict by renaming `filename` parameter to `export_filename` in logging extra dict
 - Updated all SQLAlchemy UUID types from deprecated `UUID(as_uuid=True)` to `Uuid` type
+- Removed non-existent `log_posting_linked` import from scraper worker
+- Implemented actual queue polling in scraper worker (replaced placeholder sleep loop)
 
 ### Changed
 - Reorganized repository structure: moved all backend code into `/backend` directory for cleaner separation
 - Application service now uses correct field names matching database schema
+- Scraper worker now actively polls `scraper_queue` table and processes jobs
+- Worker updates job status and tracks completion/failure with timestamps
 
 ---
 
