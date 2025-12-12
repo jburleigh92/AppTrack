@@ -45,7 +45,7 @@ def create_application_from_email(
         company_name=request.company_name or "Unknown Company",
         job_title=request.job_title or "Unknown Position",
         job_posting_url=request.job_posting_url,
-        application_date=request.application_date,
+        application_date=date.today(),
         status="applied",
         source="email",
         notes=f"From: {request.from_email}\nSubject: {request.subject}\n\n{request.body_snippet}",

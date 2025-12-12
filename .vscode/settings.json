@@ -1,0 +1,8 @@
+{
+  "terminal.integrated.env.linux": {
+    "PYTHONPATH": "/workspaces/AppTrack/backend:${PYTHONPATH}"
+  },
+  "python.analysis.extraPaths": [
+    "backend"
+  ]
+}

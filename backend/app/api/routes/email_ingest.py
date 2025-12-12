@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.api.dependencies.database import get_db
+from app.db.session import get_db
 from app.schemas.email import EmailIngestRequest, EmailIngestResponse
 from app.services.email_service import store_email_uid, check_email_exists
 from app.services.correlation import correlate_email

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
-from app.api.dependencies.database import get_db
+from app.db.session import get_db
 from app.db.models.queue import ScraperQueue
 from app.db.models.application import Application
 

@@ -41,7 +41,7 @@ class Application(Base, TimestampMixin, SoftDeleteMixin):
     )
     
     posting = relationship("JobPosting", foreign_keys=[posting_id], back_populates="applications")
-    analysis = relationship("AnalysisResult", foreign_keys=[analysis_id], back_populates="application_ref")
+    # analysis = relationship("AnalysisResult", foreign_keys=[analysis_id], back_populates="application_ref")
     timeline_events = relationship("TimelineEvent", back_populates="application", cascade="all, delete-orphan")
     scraper_jobs = relationship("ScraperQueue", back_populates="application", cascade="all, delete-orphan")
     analysis_jobs = relationship("AnalysisQueue", back_populates="application", cascade="all, delete-orphan")
