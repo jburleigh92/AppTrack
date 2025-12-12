@@ -1,33 +1,28 @@
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
-from sqlalchemy import String, Integer, ForeignKey, Index, CheckConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import String, Integer, ForeignKey, Index, CheckConstraint, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
-
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
-
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid4
-    )
     
-    application_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[uuid4] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    
+    application_id: Mapped[uuid4] = mapped_column(
+        Uuid,
         ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=False
     )
-    resume_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    resume_id: Mapped[uuid4] = mapped_column(
+        Uuid,
         ForeignKey("resumes.id", ondelete="CASCADE"),
         nullable=False
     )
-    job_posting_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    job_posting_id: Mapped[uuid4] = mapped_column(
+        Uuid,
         ForeignKey("job_postings.id", ondelete="CASCADE"),
         nullable=False
     )
@@ -43,7 +38,7 @@ class AnalysisResult(Base):
     
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
     
-    application_ref = relationship("Application", foreign_keys=[application_id], back_populates="analysis")
+    application = relationship("Application", foreign_keys=[application_id])
     resume = relationship("Resume", back_populates="analyses")
     job_posting = relationship("JobPosting", back_populates="analyses")
     
