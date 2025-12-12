@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.database import get_db
 from app.schemas.application import CaptureApplicationRequest, ApplicationResponse
 from app.services.application_service import create_application_from_capture
-from app.services.timeline_service import log_browser_capture_sync
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -17,14 +16,8 @@ def capture_application(
 ):
     """Capture application submission from browser extension."""
     try:
+        # This already logs the timeline event internally
         application = create_application_from_capture(db, request)
-        
-        # Log browser capture event
-        log_browser_capture_sync(
-            db=db,
-            application_id=application.id,
-            url=application.job_posting_url
-        )
         
         db.commit()
         

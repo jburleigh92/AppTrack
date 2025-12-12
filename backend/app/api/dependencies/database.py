@@ -4,8 +4,6 @@ from app.db.session import SessionLocal
 
 
 def get_db() -> Generator[Session, None, None]:
-    if SessionLocal is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
     db = SessionLocal()
     try:
         yield db

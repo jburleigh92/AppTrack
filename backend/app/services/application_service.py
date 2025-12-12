@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.models.application import Application
 from app.schemas.application import CaptureApplicationRequest
 from app.schemas.email import EmailIngestRequest
-from app.services.timeline_service import log_application_created_sync
+from app.services.timeline_service import record_application_created_event
 
 
 def create_application_from_capture(
@@ -27,7 +27,7 @@ def create_application_from_capture(
     db.flush()
     
     # Record timeline event
-    log_application_created_sync(
+    record_application_created_event(
         db=db,
         application_id=application.id,
         source="browser"
@@ -57,7 +57,7 @@ def create_application_from_email(
     db.flush()
     
     # Record timeline event
-    log_application_created_sync(
+    record_application_created_event(
         db=db,
         application_id=application.id,
         source="email"

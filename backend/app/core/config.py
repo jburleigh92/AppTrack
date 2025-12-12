@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     }
 
     class Config:
-        env_file = "backend/app/core/.env"
+        env_file = ".env"
         case_sensitive = True
 
     def __init__(self, **kwargs):

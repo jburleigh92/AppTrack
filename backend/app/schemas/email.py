@@ -1,11 +1,11 @@
 from datetime import date
 from typing import Optional
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 
 
 class EmailIngestRequest(BaseModel):
     message_id: str = Field(..., min_length=1, max_length=255)
-    from_email: EmailStr
+    from_email: str = Field(..., description="Email address")
     subject: str
     body_snippet: str
     application_date: date
