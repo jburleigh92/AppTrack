@@ -861,7 +861,7 @@ SOFTWARE.
 ## 👥 Authors & Contributors
 
 **Project Lead:**
-- Your Name (@yourusername)
+- Jason Burleigh (@jburleigh92)
 
 **Contributors:**
 - See [CONTRIBUTORS.md](CONTRIBUTORS.md) for full list
@@ -945,7 +945,7 @@ SOFTWARE.
 
 ## 🔗 Links
 
-**Repository:** https://github.com/yourusername/AppTrack  
+**Repository:** https://github.com/jburleigh92/AppTrack  
 **Documentation:** https://docs.apptrack.dev  
 **Website:** https://apptrack.dev  
 **Demo:** https://demo.apptrack.dev  
