@@ -1,42 +1,36 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.db.models.job_posting import JobPosting, ScrapedPosting
 from app.db.models.application import Application
+from app.db.models.queue import ScraperQueue
 from app.services.scraping import scrape_url, extract_job_data, enrich_job_data, normalize_url
 from app.services.timeline_service import (
     log_scrape_started_sync,
     log_scrape_completed_sync,
     log_scrape_failed_sync,
-    log_posting_linked
 )
 
 logger = logging.getLogger(__name__)
 
-
-async def process_scrape_job(job_data: dict):
+async def process_scrape_job(job: ScraperQueue, db: Session):
     """
     Process a scrape job from the queue.
-    
-    Args:
-        job_data: Dict with 'job_posting_url' and optional 'application_id'
     """
-    url = job_data.get('job_posting_url')
-    application_id = job_data.get('application_id')
+    url = job.url
+    application_id = job.application_id
     
-    logger.info(
-        f"Processing scrape job",
-        extra={
-            "url": url,
-            "application_id": application_id
-        }
-    )
-    
-    db = SessionLocal()
+    logger.info(f"Processing scrape job: {url} for application {application_id}")
     
     try:
+        # Update status to processing
+        job.status = "processing"
+        job.started_at = datetime.utcnow()
+        db.commit()
+        
         # Log scrape started
         if application_id:
             log_scrape_started_sync(db=db, application_id=application_id, url=url)
@@ -46,10 +40,11 @@ async def process_scrape_job(job_data: dict):
         scrape_result = await scrape_url(url)
         
         if scrape_result.status == "error":
-            logger.error(
-                f"Scrape failed: {scrape_result.error_reason}",
-                extra={"url": url}
-            )
+            logger.error(f"Scrape failed: {scrape_result.error_reason}")
+            job.status = "failed"
+            job.error_message = scrape_result.error_reason
+            job.completed_at = datetime.utcnow()
+            db.commit()
             
             if application_id:
                 log_scrape_failed_sync(
@@ -59,93 +54,65 @@ async def process_scrape_job(job_data: dict):
                     url=url
                 )
                 db.commit()
-            
             return
         
-        # Step 2: Extract data
+        # Step 2: Extract job data
         extracted = extract_job_data(scrape_result.html, url)
         
         # Step 3: Enrich data
         enriched = enrich_job_data(extracted)
         
-        # Step 4: Save scraped posting
-        scraped_posting = ScrapedPosting(
-            url=url,
-            html_content=scrape_result.html[:1000000],  # Limit to 1MB
-            http_status_code=scrape_result.http_status_code or 200,
-            scraped_at=datetime.utcnow()
-        )
-        db.add(scraped_posting)
-        db.flush()
-        
-        # Step 5: Create job posting
-        normalized_url = normalize_url(scrape_result.redirect_url or url)
+        # Step 4: Save to database
+        norm_url = normalize_url(url)
         
         job_posting = JobPosting(
-            url=url,
-            normalized_url=normalized_url,
-            title=enriched.get('title'),
-            company=enriched.get('company'),
-            location=enriched.get('location'),
-            description=enriched.get('description'),
-            requirements=enriched.get('requirements'),
-            employment_type=enriched.get('employment_type'),
-            salary_range=enriched.get('salary'),
-            source=enriched.get('source'),
-            extraction_complete=not enriched.get('needs_review', False)
+            job_title=enriched.get("title", "Unknown"),
+            company_name=enriched.get("company", "Unknown"),
+            description=enriched.get("description"),
+            requirements=enriched.get("requirements"),
+            salary_range=enriched.get("salary_range"),
+            location=enriched.get("location"),
+            employment_type=enriched.get("employment_type"),
+            extraction_complete=not enriched.get("needs_review", False)
         )
         
         db.add(job_posting)
         db.flush()
         
-        # Link scraped posting to job posting
-        scraped_posting.job_posting_id = job_posting.id
-        
-        # Step 6: Link to application if provided
+        # Link to application
         if application_id:
-            application = db.query(Application).filter(
-                Application.id == application_id
-            ).first()
-            
+            application = db.query(Application).filter(Application.id == application_id).first()
             if application:
                 application.posting_id = job_posting.id
-                
-                # Update missing fields
-                if not application.company_name or application.company_name == "Unknown Company":
-                    if job_posting.company:
-                        application.company_name = job_posting.company
-                
-                if not application.job_title or application.job_title == "Unknown Position":
-                    if job_posting.title:
-                        application.job_title = job_posting.title
-                
-                # Clear needs_review if data is now complete
-                if application.company_name and application.job_title:
-                    if application.company_name != "Unknown Company" and application.job_title != "Unknown Position":
-                        application.needs_review = False
-                
-                # Log events
-                log_scrape_completed_sync(
-                    db=db,
-                    application_id=application_id,
-                    url=url,
-                    posting_id=job_posting.id
-                )
+                application.scraping_attempted = True
+                application.scraping_successful = True
+        
+        # Update queue job
+        job.status = "completed"
+        job.completed_at = datetime.utcnow()
+        job.result_data = {"job_posting_id": str(job_posting.id)}
         
         db.commit()
         
-        logger.info(
-            f"Scrape job completed successfully",
-            extra={
-                "url": url,
-                "job_posting_id": str(job_posting.id),
-                "application_id": application_id
-            }
-        )
+        if application_id:
+            log_scrape_completed_sync(
+                db=db,
+                application_id=application_id,
+                job_posting_id=job_posting.id,
+                url=url
+            )
+            db.commit()
+        
+        logger.info(f"Scrape job completed successfully: {job_posting.id}")
     
     except Exception as e:
         logger.error(f"Error processing scrape job", exc_info=True)
         db.rollback()
+        
+        job.status = "failed"
+        job.error_message = str(e)
+        job.completed_at = datetime.utcnow()
+        db.commit()
         
         if application_id:
             log_scrape_failed_sync(
@@ -155,29 +122,35 @@ async def process_scrape_job(job_data: dict):
                 url=url
             )
             db.commit()
-    
-    finally:
-        db.close()
-
 
 def run_scraper_worker():
-    """Run the scraper worker (polling mode for now)."""
+    """Run the scraper worker (polling mode)."""
     logger.info("Scraper worker started")
     
-    # In a real implementation, this would poll a queue table
-    # For now, this is a placeholder for the worker process
     while True:
+        db = SessionLocal()
         try:
             # Poll for pending scrape jobs
-            # This would be replaced with actual queue polling
-            asyncio.run(asyncio.sleep(5))
+            pending_job = db.query(ScraperQueue).filter(
+                ScraperQueue.status == "pending"
+            ).order_by(ScraperQueue.created_at).first()
+            
+            if pending_job:
+                logger.info(f"Found pending job: {pending_job.id}")
+                asyncio.run(process_scrape_job(pending_job, db))
+            else:
+                # No jobs, sleep for a bit
+                time.sleep(5)
+        
         except KeyboardInterrupt:
             logger.info("Scraper worker stopped")
+            db.close()
             break
         except Exception as e:
             logger.error("Error in scraper worker", exc_info=True)
-            asyncio.run(asyncio.sleep(5))
-
+            time.sleep(5)
+        finally:
+            db.close()
 
 if __name__ == "__main__":
     run_scraper_worker()
