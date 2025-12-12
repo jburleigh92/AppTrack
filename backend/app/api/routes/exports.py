@@ -54,15 +54,10 @@ def export_to_csv(
         # Generate filename with timestamp
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"applications_export_{timestamp}.csv"
+        export_filename = f"applications_export_{timestamp}.csv"
         
         logger.info(
-            f"CSV export generated",
-            extra={
-                "filename": filename,
-                "row_count": len(rows),
-                "filters": filters.dict(exclude_none=True)
-            }
+            f"CSV export generated: {export_filename}, rows: {len(rows)}"
         )
         
         # Return streaming response
@@ -70,7 +65,7 @@ def export_to_csv(
             io.BytesIO(csv_content.encode('utf-8')),
             media_type="text/csv",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                "Content-Disposition": f'attachment; filename="{export_filename}"'
             }
         )
     
@@ -110,12 +105,7 @@ def sync_to_sheets(
         )
         
         logger.info(
-            f"Google Sheets sync completed",
-            extra={
-                "sheet_id": request.sheet_id,
-                "worksheet": request.worksheet_name,
-                "rows": result['updated_rows']
-            }
+            f"Google Sheets sync completed: {request.sheet_id}, rows: {result['updated_rows']}"
         )
         
         return SheetsSyncResponse(

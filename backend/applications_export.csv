@@ -1,0 +1,6 @@
+Application ID,Company Name,Job Title,Status,Application Date,Source,Job Location,Job URL,Employment Type,Salary Range,Analysis Match Score,Qualifications Met,Qualifications Missing,Skills Suggestions,Last Event Type,Last Event Date,Notes
+5fa2837d-9145-41b9-a1fd-24f05c54939b,Test Corp,Software Engineer,applied,2025-12-12,browser,,https://jobs.example.com/123,,,,,,,application_created,2025-12-12T21:30:20.713502,
+573e7096-ec71-4612-968d-99778c320fdc,Acme Corp,Senior Developer,applied,2025-12-10,email,,https://careers.acme.com/456,,,,,,,application_created,2025-12-12T21:37:01.392468,"From: noreply@company.com
+Subject: Application Received - Senior Developer
+
+Thank you for applying to our Senior Developer position"

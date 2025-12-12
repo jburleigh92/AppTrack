@@ -10,14 +10,13 @@ from app.schemas.timeline import (
     TimelineEventListResponse
 )
 from app.services.timeline_service import (
-    create_event,
-    list_events_for_application
+    create_event_sync,
+    list_events_for_application_sync
 )
 from app.db.models.application import Application
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
 
 @router.get("/{application_id}/timeline", response_model=TimelineEventListResponse)
 def get_application_timeline(
@@ -40,16 +39,15 @@ def get_application_timeline(
         raise HTTPException(status_code=404, detail="Application not found")
     
     # Get timeline events
-    events = list_events_for_application(db, application_id, limit=limit)
+    events = list_events_for_application_sync(db, application_id, limit=limit)
     
     return TimelineEventListResponse(
         events=events,
         total=len(events)
     )
 
-
 @router.post("/{application_id}/timeline", response_model=TimelineEventResponse, status_code=201)
-async def create_timeline_event(
+def create_timeline_event(
     application_id: UUID,
     event: TimelineEventBase,
     db: Session = Depends(get_db)
@@ -70,7 +68,7 @@ async def create_timeline_event(
         raise HTTPException(status_code=404, detail="Application not found")
     
     # Create event
-    created_event = await create_event(
+    created_event = create_event_sync(
         db=db,
         application_id=application_id,
         event_type=event.event_type,
