@@ -1,23 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.api.dependencies.database import get_db
+from app.db.session import SessionLocal
 
 router = APIRouter(prefix="/health", tags=["health"])
-
 
 @router.get("/live")
 def liveness_check():
     """Liveness probe - checks if the application process is running."""
     return {"status": "ok"}
 
-
 @router.get("/ready")
-def readiness_check(db: Session = Depends(get_db)):
+def readiness_check():
     """Readiness probe - checks if the application can serve requests (DB connection)."""
     try:
-        db.execute(text("SELECT 1"))
-        return {"status": "ok"}
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            return {"status": "ok", "database": "connected"}
+        finally:
+            db.close()
     except Exception as e:
         raise HTTPException(
             status_code=503,

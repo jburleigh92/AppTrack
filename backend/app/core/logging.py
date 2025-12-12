@@ -35,3 +35,8 @@ def configure_logging(settings: Any) -> None:
     }
     
     logging.config.dictConfig(config)
+
+def setup_logging() -> None:
+    """Setup application logging"""
+    from app.core.config import settings
+    configure_logging(settings)
