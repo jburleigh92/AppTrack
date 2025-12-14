@@ -1,8 +1,8 @@
 import logging
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional
 from datetime import datetime
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, parse_qs, urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,40 @@ async def scrape_url(url: str) -> ScrapeResult:
         ScrapeResult with status, html, and metadata
     """
     try:
+        # --- FIX: Greenhouse embedded job handling with fallback ---
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+
+        if "gh_jid" in qs:
+            job_id = qs["gh_jid"][0]
+            embed_url = f"https://boards.greenhouse.io/embed/job_app?gh_jid={job_id}"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(embed_url)
+
+                if resp.status_code == 200:
+                    html = resp.text
+
+                    if html and len(html.strip()) >= 200:
+                        logger.info(
+                            "Successfully scraped Greenhouse job via embed",
+                            extra={"url": url, "job_id": job_id}
+                        )
+
+                        return ScrapeResult(
+                            status="success",
+                            url=url,
+                            html=html
+                        )
+
+                    logger.warning("Greenhouse embed returned empty HTML, falling back to page scrape")
+
+                else:
+                    logger.warning(
+                        f"Greenhouse embed returned {resp.status_code} for job {job_id}, falling back to page scrape"
+                    )
+        # --- END FIX ---
+
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
@@ -46,9 +80,13 @@ async def scrape_url(url: str) -> ScrapeResult:
             
             if response.status_code == 200:
                 final_url = str(response.url) if response.url != url else None
+
+                logger.info(
+                    f"Fetched HTML length: {len(response.text)}"
+                )
                 
                 logger.info(
-                    f"Successfully scraped URL",
+                    "Successfully scraped URL",
                     extra={
                         "url": url,
                         "status_code": response.status_code,
@@ -117,22 +155,26 @@ async def scrape_url(url: str) -> ScrapeResult:
 
 
 def normalize_url(url: str) -> str:
-    """Remove tracking parameters from URL."""
+    """Normalize URL while preserving Greenhouse embedded job URLs."""
     parsed = urlparse(url)
-    
-    # Common tracking parameters to remove
-    tracking_params = [
+    query_params = parse_qs(parsed.query)
+
+    # If this is a Greenhouse embedded job, KEEP it intact
+    if "gh_jid" in query_params:
+        return url
+
+    tracking_params = {
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
         'ref', 'source', 'trk', 'referrer', 'fbclid', 'gclid'
-    ]
-    
-    # Keep query string but remove tracking params
-    from urllib.parse import parse_qs, urlencode
-    query_params = parse_qs(parsed.query)
-    cleaned_params = {k: v for k, v in query_params.items() if k not in tracking_params}
-    
+    }
+
+    cleaned_params = {
+        k: v for k, v in query_params.items()
+        if k not in tracking_params
+    }
+
     cleaned_query = urlencode(cleaned_params, doseq=True)
-    
+
     return f"{parsed.scheme}://{parsed.netloc}{parsed.path}" + (
         f"?{cleaned_query}" if cleaned_query else ""
     )

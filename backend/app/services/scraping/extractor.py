@@ -276,16 +276,30 @@ def _extract_salary(soup: BeautifulSoup) -> Optional[str]:
 
 def _extract_description(soup: BeautifulSoup, source: str) -> Optional[str]:
     """Extract job description HTML."""
-    if source == 'greenhouse':
-        desc_elem = soup.select_one('#content .content')
-        if desc_elem:
-            return str(desc_elem)
-    
-    elif source == 'lever':
+    # Greenhouse embedded (custom sites)
+    if source == "greenhouse":
+        # FIX: handle custom React-rendered Greenhouse career pages (e.g. getfiber.ai)
+        elem = soup.select_one('main')
+        if elem and len(elem.get_text(strip=True)) > 300:
+            return str(elem)
+
+        selectors = [
+            '[data-testid="job-description"]',
+            '.gh-job-description',
+            '.gh-content',
+            'section'
+        ]
+        for selector in selectors:
+            elem = soup.select_one(selector)
+            if elem and len(elem.get_text(strip=True)) > 200:
+                return str(elem)
+
+    # Lever
+    if source == "lever":
         desc_elem = soup.select_one('.section-wrapper .section:first-of-type')
         if desc_elem:
             return str(desc_elem)
-    
+
     # Generic fallback
     selectors = [
         '[itemprop="description"]',
@@ -293,12 +307,13 @@ def _extract_description(soup: BeautifulSoup, source: str) -> Optional[str]:
         '[class*="description"]',
         '.content'
     ]
-    
+
     for selector in selectors:
         elem = soup.select_one(selector)
-        if elem and len(elem.get_text(strip=True)) > 100:
+        if elem and len(elem.get_text(strip=True)) > 200:
             return str(elem)
-    
+
+    logger.warning("Job description not found during extraction")
     return None
 
 
