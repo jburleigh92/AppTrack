@@ -60,15 +60,16 @@ def extract_job_data(html: str, url: str) -> ExtractedData:
     posted_date = _extract_posted_date(soup)
     
     # Determine if needs review
-    needs_review = not all([title, company])
+    needs_review = not all([title, company, description_html])
     
     logger.info(
-        f"Extracted job data",
+        "Extracted job data",
         extra={
             "url": url,
             "source": source,
             "has_title": bool(title),
             "has_company": bool(company),
+            "has_description": bool(description_html),
             "needs_review": needs_review
         }
     )

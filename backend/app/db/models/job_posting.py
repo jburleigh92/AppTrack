@@ -11,7 +11,7 @@ class JobPosting(Base):
     id: Mapped[uuid4] = mapped_column(Uuid, primary_key=True, default=uuid4)
     
     job_title: Mapped[str] = mapped_column(String(255), nullable=False)
-    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    company_name: Mapped[str] = mapped_column(String(255), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     requirements: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     salary_range: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
