@@ -1,3 +1,5 @@
+print(">>> scraper_worker module loaded <<<")
+
 import asyncio
 import logging
 import time
@@ -36,8 +38,11 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
             log_scrape_started_sync(db=db, application_id=application_id, url=url)
             db.commit()
         
-        # Step 1: Scrape URL
-        scrape_result = await scrape_url(url)
+        # FIX: normalize URL BEFORE scraping and extraction
+        norm_url = normalize_url(url)
+        
+        # Step 1: Scrape URL (normalized)
+        scrape_result = await scrape_url(norm_url)
         
         if scrape_result.status == "error":
             logger.error(f"Scrape failed: {scrape_result.error_reason}")
@@ -56,24 +61,22 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 db.commit()
             return
         
-        # Step 2: Extract job data
-        extracted = extract_job_data(scrape_result.html, url)
+        # Step 2: Extract job data (normalized URL matters for ATS detection)
+        extracted = extract_job_data(scrape_result.html, norm_url)
         
         # Step 3: Enrich data
         enriched = enrich_job_data(extracted)
         
         # Step 4: Save to database
-        norm_url = normalize_url(url)
-        
         job_posting = JobPosting(
             job_title=enriched.get("title", "Unknown"),
             company_name=enriched.get("company", "Unknown"),
             description=enriched.get("description"),
             requirements=enriched.get("requirements"),
-            salary_range=enriched.get("salary_range"),
+            salary_range=enriched.get("salary"),
             location=enriched.get("location"),
             employment_type=enriched.get("employment_type"),
-            extraction_complete=not enriched.get("needs_review", False)
+            extraction_complete=bool(enriched.get("description"))
         )
         
         db.add(job_posting)
@@ -124,6 +127,7 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
             db.commit()
 
 def run_scraper_worker():
+    print(">>> Scraper worker started <<<")
     """Run the scraper worker (polling mode)."""
     logger.info("Scraper worker started")
     

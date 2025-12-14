@@ -27,10 +27,13 @@ async def process_analysis_job(job: AnalysisQueue):
     settings = get_settings()
     
     try:
+        job = db.merge(job)
+
         # Mark job as processing
         job.status = "processing"
         job.started_at = datetime.utcnow()
         job.attempts += 1
+        db.commit()
         
         # Log analysis started
         log_analysis_started_sync(db=db, application_id=job.application_id)

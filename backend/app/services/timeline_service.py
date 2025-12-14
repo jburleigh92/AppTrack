@@ -239,13 +239,19 @@ def log_scrape_completed_sync(
     db: Session,
     application_id: UUID,
     url: str,
-    posting_id: Optional[UUID] = None
+    job_posting_id: Optional[UUID] = None,
+    status: str = "completed",
 ) -> Optional[TimelineEvent]:
     """Log scrape completion event (sync)."""
-    event_data = {"url": url}
-    if posting_id:
-        event_data["posting_id"] = str(posting_id)
-    
+
+    event_data = {
+        "url": url,
+        "status": status,
+    }
+
+    if job_posting_id:
+        event_data["job_posting_id"] = str(job_posting_id)
+
     return create_event_sync(
         db=db,
         application_id=application_id,
