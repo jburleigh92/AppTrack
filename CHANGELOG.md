@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Aligned scraper completeness rules with analysis requirements (description required)
+- Prevented infinite retry loops in analysis worker on invalid data
+- Ensured async queue jobs reach terminal states
+- Fixed SQLAlchemy session ownership issues in workers
+- Corrected scraper queue status constraints
+- Added extractor-level logging for scrape completeness
+
+### Internal
+- Improved commit ordering and state transitions in async workers
+
+
 ### Added
 - GitHub Codespaces deployment and testing environment
 - Complete Phase 1-5 integration testing in production-like environment
