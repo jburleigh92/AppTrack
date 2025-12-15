@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- End-to-end Analysis Worker pipeline
+- Greenhouse Boards API integration for job scraping
+- Resume ingestion and parsing support
+- LLM-powered job-to-resume matching with structured JSON output
+- Match scoring, qualification comparison, and improvement suggestions
+- Persistent analysis results linked to applications, resumes, and job postings
+
+### Fixed
+- Job scraping failures caused by JS-rendered ATS pages
+- Incorrect fallback behavior when Greenhouse jobs were publicly available
+- Analysis worker not detecting completed job postings
+- Database wiring issues between scraper, analysis queue, and results
+
+### Notes
+- This release marks the first fully functional end-to-end pipeline:
+  Job URL → Scrape → Persist → Resume → Analyze → Store → Retrieve
+
+
 ### Fixed
 - Implemented Greenhouse Boards API integration as the authoritative source for public Greenhouse job postings
 - Ensured Greenhouse API is attempted before HTTP or headless scraping
