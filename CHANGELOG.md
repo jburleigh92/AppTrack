@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Implemented Greenhouse Boards API integration as the authoritative source for public Greenhouse job postings
+- Ensured Greenhouse API is attempted before HTTP or headless scraping
+- Correctly short-circuited scraping pipeline when API data is available
+- Fixed job processing metadata to reflect Greenhouse API outcomes (`success`, `not_found`)
+- Verified end-to-end application → job_posting linkage via API-sourced data
+- Eliminated false negatives caused by authenticated-only Greenhouse UI views
+
+### Clarified
+- Confirmed that some Greenhouse job postings are publicly accessible only via the Boards API and not via unauthenticated HTML scraping
+- Documented that logged-in Greenhouse UI visibility does not imply public scrape availability
+
+### Fixed
 - Stabilized async scraping pipeline with deterministic failure handling
 - Added Greenhouse Boards API as deterministic pre-headless data source
 - Added Greenhouse embed handling with safe fallback to page scrape

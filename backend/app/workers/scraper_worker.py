@@ -5,6 +5,7 @@ import logging
 import time
 from datetime import datetime
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.job_posting import JobPosting, ScrapedPosting
 from app.db.models.application import Application
@@ -25,6 +26,7 @@ from app.services.timeline_service import (
 logger = logging.getLogger(__name__)
 
 async def process_scrape_job(job: ScraperQueue, db: Session):
+    print(f">>> WORKER PICKED UP JOB {job.id}")
     """
     Process a scrape job from the queue.
     """
@@ -123,6 +125,10 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
 
         # Step 4: Enrich data
         enriched = enrich_job_data(extracted)
+        # Determine whether extraction produced meaningful data
+        description = enriched.get("description") or ""
+        has_meaningful_data = len(description.strip()) >= settings.HEADLESS_MIN_DESCRIPTION_LENGTH
+
 
         # Step 5: Save to database
         job_posting = JobPosting(
@@ -148,13 +154,18 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 application.scraping_successful = True
         
         # Update queue job
-        job.status = "completed"
+        if has_meaningful_data:
+            job.status = "completed"
+        else:
+            job.status = "failed"
+            job.error_message = "Extraction completed but no meaningful job description found"
+
         job.completed_at = datetime.utcnow()
         job.processing_metadata = processing_metadata if processing_metadata else None
         job.result_data = {"job_posting_id": str(job_posting.id)}
-        
+
         db.commit()
-        
+
         if application_id:
             log_scrape_completed_sync(
                 db=db,
@@ -163,6 +174,7 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 url=url
             )
             db.commit()
+
         
         logger.info(f"Scrape job completed successfully: {job_posting.id}")
     
