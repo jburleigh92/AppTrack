@@ -53,12 +53,13 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
         scrape_result = None
 
         # Step 1: Try Greenhouse Boards API first (before HTTP scrape)
-        if 'greenhouse.io' in norm_url.lower() or 'boards.greenhouse.io' in norm_url.lower():
-            job_id = extract_job_id(norm_url)
-            # Try to get company_slug from URL only (works for boards.greenhouse.io)
+        # Detect by gh_jid parameter, not by hostname
+        job_id = extract_job_id(norm_url)
+        if job_id:
+            # Try to get company_slug from URL (works for any domain)
             company_slug = extract_company_slug(norm_url, html=None)
 
-            if job_id and company_slug:
+            if company_slug:
                 logger.info(
                     f"Attempting Greenhouse Boards API for {company_slug}/{job_id}"
                 )
@@ -89,9 +90,9 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                         f"Greenhouse Boards API returned 404 — falling back to HTTP scrape"
                     )
             else:
-                # Could not determine slug or job_id from URL - continue to HTTP scrape
+                # Could not determine company_slug from URL - continue to HTTP scrape
                 logger.info(
-                    f"Skipping Greenhouse Boards API — cannot determine company_slug from URL, will try HTTP scrape"
+                    f"Skipping Greenhouse Boards API — cannot determine company_slug from URL for job_id {job_id}, will try HTTP scrape"
                 )
 
         # Step 2: HTTP scrape (only if API didn't provide data)

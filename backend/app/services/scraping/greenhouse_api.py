@@ -78,6 +78,23 @@ def extract_company_slug(url: str, html: Optional[str] = None) -> Optional[str]:
         if len(path_parts) >= 1:
             return path_parts[0]
 
+    # Custom domain with gh_jid (e.g., stripe.com/jobs/search?gh_jid=123)
+    # Extract company name from hostname
+    if hostname:
+        # Remove common prefixes
+        hostname = hostname.replace('www.', '')
+        hostname = hostname.replace('jobs.', '')
+        hostname = hostname.replace('careers.', '')
+
+        # Extract base company name from domain
+        # e.g., stripe.com -> stripe, anthropic.com -> anthropic
+        parts = hostname.split('.')
+        if len(parts) >= 2:
+            company_slug = parts[0]
+            # Validate it looks reasonable (alphanumeric, hyphens)
+            if company_slug and len(company_slug) > 1:
+                return company_slug
+
     # Embedded Greenhouse (custom domain): try HTML fallback
     if html:
         try:
