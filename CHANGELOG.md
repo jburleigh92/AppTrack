@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Stabilized async scraping pipeline with deterministic failure handling
+- Added Greenhouse Boards API as deterministic pre-headless data source
 - Added Greenhouse embed handling with safe fallback to page scrape
 - Prevented analysis retry loops on incomplete job data
 - Aligned scraper completeness rules with analysis requirements (description required)

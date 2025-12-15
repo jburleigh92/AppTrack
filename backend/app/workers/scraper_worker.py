@@ -10,6 +10,12 @@ from app.db.models.job_posting import JobPosting, ScrapedPosting
 from app.db.models.application import Application
 from app.db.models.queue import ScraperQueue
 from app.services.scraping import scrape_url, extract_job_data, enrich_job_data, normalize_url
+from app.services.scraping.extractor import ExtractedData
+from app.services.scraping.greenhouse_api import (
+    fetch_greenhouse_job,
+    extract_company_slug,
+    extract_job_id
+)
 from app.services.timeline_service import (
     log_scrape_started_sync,
     log_scrape_completed_sync,
@@ -60,14 +66,60 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 )
                 db.commit()
             return
-        
-        # Step 2: Extract job data (normalized URL matters for ATS detection)
-        extracted = extract_job_data(scrape_result.html, norm_url)
-        
-        # Step 3: Enrich data
+
+        # Initialize processing metadata
+        processing_metadata = {}
+        extracted = None
+
+        # Step 2: Try Greenhouse Boards API (if applicable)
+        if 'greenhouse.io' in norm_url.lower() or 'boards.greenhouse.io' in norm_url.lower():
+            job_id = extract_job_id(norm_url)
+            company_slug = extract_company_slug(norm_url, scrape_result.html)
+
+            if job_id and company_slug:
+                logger.info(
+                    f"Attempting Greenhouse Boards API for {company_slug}/{job_id}"
+                )
+                processing_metadata['greenhouse_api_attempted'] = True
+
+                api_data = fetch_greenhouse_job(company_slug, job_id)
+
+                if api_data:
+                    # API success - use API data
+                    processing_metadata['greenhouse_api_result'] = 'success'
+                    logger.info(
+                        f"Using Greenhouse Boards API data for {company_slug}/{job_id}"
+                    )
+
+                    # Map API response to ExtractedData
+                    extracted = ExtractedData(
+                        title=api_data.get('title'),
+                        company=company_slug.replace('-', ' ').title(),  # Best-effort company name
+                        location=api_data.get('location', {}).get('name') if isinstance(api_data.get('location'), dict) else None,
+                        description_html=api_data.get('content'),
+                        source='greenhouse',
+                        needs_review=not bool(api_data.get('content'))
+                    )
+                else:
+                    # API returned None (404 or error)
+                    processing_metadata['greenhouse_api_result'] = 'not_found'
+                    logger.info(
+                        f"Greenhouse Boards API returned 404 — job not publicly available"
+                    )
+            else:
+                # Could not determine slug or job_id
+                logger.info(
+                    f"Skipping Greenhouse Boards API — missing company_slug or job_id"
+                )
+
+        # Step 3: Extract job data from HTML (if API didn't provide data)
+        if extracted is None:
+            extracted = extract_job_data(scrape_result.html, norm_url)
+
+        # Step 4: Enrich data
         enriched = enrich_job_data(extracted)
-        
-        # Step 4: Save to database
+
+        # Step 5: Save to database
         job_posting = JobPosting(
             job_title=enriched.get("title", "Unknown"),
             company_name=enriched.get("company", "Unknown"),
@@ -93,6 +145,7 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
         # Update queue job
         job.status = "completed"
         job.completed_at = datetime.utcnow()
+        job.processing_metadata = processing_metadata if processing_metadata else None
         job.result_data = {"job_posting_id": str(job_posting.id)}
         
         db.commit()
