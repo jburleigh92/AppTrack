@@ -163,7 +163,7 @@ async def poll_analysis_queue():
         ).order_by(
             AnalysisQueue.priority.desc(),
             AnalysisQueue.created_at
-        ).limit(1).with_for_update(skip_locked=True)
+        ).limit(1)
         
         job = db.execute(stmt).scalar_one_or_none()
         
@@ -182,11 +182,13 @@ async def poll_analysis_queue():
 
 
 def run_analysis_worker():
+    print(">>> ENTERED run_analysis_worker <<<", flush=True)
     """Run the analysis worker (polling mode)."""
     logger.info("Analysis worker started")
     
     while True:
         try:
+            logger.info(">>> ANALYSIS WORKER POLLING <<<")
             # Poll for jobs
             has_job = asyncio.run(poll_analysis_queue())
             

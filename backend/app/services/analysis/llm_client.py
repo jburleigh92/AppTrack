@@ -179,7 +179,6 @@ Return ONLY the JSON object, no other text.
             ],
             temperature=self.settings.temperature,
             max_tokens=self.settings.max_tokens,
-            response_format={"type": "json_object"}
         )
         
         content = response.choices[0].message.content
