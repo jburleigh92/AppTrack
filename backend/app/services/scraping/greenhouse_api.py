@@ -21,7 +21,13 @@ def fetch_greenhouse_job(company_slug: str, job_id: str) -> Optional[dict]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs/{job_id}"
 
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(
+            timeout=10.0,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json",
+            }
+        ) as client:
             response = client.get(url)
 
             if response.status_code == 200:
