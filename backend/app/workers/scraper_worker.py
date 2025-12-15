@@ -5,11 +5,18 @@ import logging
 import time
 from datetime import datetime
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.job_posting import JobPosting, ScrapedPosting
 from app.db.models.application import Application
 from app.db.models.queue import ScraperQueue
 from app.services.scraping import scrape_url, extract_job_data, enrich_job_data, normalize_url
+from app.services.scraping.extractor import ExtractedData
+from app.services.scraping.greenhouse_api import (
+    fetch_greenhouse_job,
+    extract_company_slug,
+    extract_job_id
+)
 from app.services.timeline_service import (
     log_scrape_started_sync,
     log_scrape_completed_sync,
@@ -19,6 +26,7 @@ from app.services.timeline_service import (
 logger = logging.getLogger(__name__)
 
 async def process_scrape_job(job: ScraperQueue, db: Session):
+    print(f">>> WORKER PICKED UP JOB {job.id}")
     """
     Process a scrape job from the queue.
     """
@@ -40,34 +48,89 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
         
         # FIX: normalize URL BEFORE scraping and extraction
         norm_url = normalize_url(url)
-        
-        # Step 1: Scrape URL (normalized)
-        scrape_result = await scrape_url(norm_url)
-        
-        if scrape_result.status == "error":
-            logger.error(f"Scrape failed: {scrape_result.error_reason}")
-            job.status = "failed"
-            job.error_message = scrape_result.error_reason
-            job.completed_at = datetime.utcnow()
-            db.commit()
-            
-            if application_id:
-                log_scrape_failed_sync(
-                    db=db,
-                    application_id=application_id,
-                    reason=scrape_result.error_reason,
-                    url=url
+
+        # Initialize processing metadata
+        processing_metadata = {}
+        extracted = None
+        scrape_result = None
+
+        # Step 1: Try Greenhouse Boards API first (before HTTP scrape)
+        # Detect by gh_jid parameter, not by hostname
+        job_id = extract_job_id(norm_url)
+        if job_id:
+            # Try to get company_slug from URL (works for any domain)
+            company_slug = extract_company_slug(norm_url, html=None)
+
+            if company_slug:
+                logger.info(
+                    f"Attempting Greenhouse Boards API for {company_slug}/{job_id}"
                 )
+                processing_metadata['greenhouse_api_attempted'] = True
+
+                api_data = fetch_greenhouse_job(company_slug, job_id)
+
+                if api_data:
+                    # API success - short-circuit, skip HTTP scrape
+                    processing_metadata['greenhouse_api_result'] = 'success'
+                    logger.info(
+                        f"Greenhouse Boards API success — skipping HTTP scrape for {company_slug}/{job_id}"
+                    )
+
+                    # Map API response to ExtractedData
+                    extracted = ExtractedData(
+                        title=api_data.get('title'),
+                        company=company_slug.replace('-', ' ').title(),  # Best-effort company name
+                        location=api_data.get('location', {}).get('name') if isinstance(api_data.get('location'), dict) else None,
+                        description_html=api_data.get('content'),
+                        source='greenhouse',
+                        needs_review=not bool(api_data.get('content'))
+                    )
+                else:
+                    # API returned None (404 or error) - continue to HTTP scrape
+                    processing_metadata['greenhouse_api_result'] = 'not_found'
+                    logger.info(
+                        f"Greenhouse Boards API returned 404 — falling back to HTTP scrape"
+                    )
+            else:
+                # Could not determine company_slug from URL - continue to HTTP scrape
+                logger.info(
+                    f"Skipping Greenhouse Boards API — cannot determine company_slug from URL for job_id {job_id}, will try HTTP scrape"
+                )
+
+        # Step 2: HTTP scrape (only if API didn't provide data)
+        if extracted is None:
+            scrape_result = await scrape_url(norm_url)
+
+            if scrape_result.status == "error":
+                logger.error(f"Scrape failed: {scrape_result.error_reason}")
+                job.status = "failed"
+                job.error_message = scrape_result.error_reason
+                job.completed_at = datetime.utcnow()
+                job.processing_metadata = processing_metadata if processing_metadata else None
                 db.commit()
-            return
-        
-        # Step 2: Extract job data (normalized URL matters for ATS detection)
-        extracted = extract_job_data(scrape_result.html, norm_url)
-        
-        # Step 3: Enrich data
+
+                if application_id:
+                    log_scrape_failed_sync(
+                        db=db,
+                        application_id=application_id,
+                        reason=scrape_result.error_reason,
+                        url=url
+                    )
+                    db.commit()
+                return
+
+        # Step 3: Extract job data from HTML (if API didn't provide data)
+        if extracted is None and scrape_result:
+            extracted = extract_job_data(scrape_result.html, norm_url)
+
+        # Step 4: Enrich data
         enriched = enrich_job_data(extracted)
-        
-        # Step 4: Save to database
+        # Determine whether extraction produced meaningful data
+        description = enriched.get("description") or ""
+        has_meaningful_data = len(description.strip()) >= settings.HEADLESS_MIN_DESCRIPTION_LENGTH
+
+
+        # Step 5: Save to database
         job_posting = JobPosting(
             job_title=enriched.get("title", "Unknown"),
             company_name=enriched.get("company", "Unknown"),
@@ -91,12 +154,18 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 application.scraping_successful = True
         
         # Update queue job
-        job.status = "completed"
+        if has_meaningful_data:
+            job.status = "completed"
+        else:
+            job.status = "failed"
+            job.error_message = "Extraction completed but no meaningful job description found"
+
         job.completed_at = datetime.utcnow()
+        job.processing_metadata = processing_metadata if processing_metadata else None
         job.result_data = {"job_posting_id": str(job_posting.id)}
-        
+
         db.commit()
-        
+
         if application_id:
             log_scrape_completed_sync(
                 db=db,
@@ -105,6 +174,7 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                 url=url
             )
             db.commit()
+
         
         logger.info(f"Scrape job completed successfully: {job_posting.id}")
     

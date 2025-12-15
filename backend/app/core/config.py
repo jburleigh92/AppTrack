@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     LOG_LEVEL: str = "INFO"
+
+    HEADLESS_MIN_DESCRIPTION_LENGTH: int = 200
     
     llm_config: Dict[str, Any] = {
         "provider": "openai",

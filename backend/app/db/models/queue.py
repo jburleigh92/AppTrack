@@ -15,11 +15,11 @@ class ScraperQueue(Base, TimestampMixin):
         primary_key=True,
         default=uuid4
     )
-    
-    application_id: Mapped[UUID] = mapped_column(
+
+    application_id: Mapped[Optional[UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="CASCADE"),
-        nullable=False
+        nullable=True
     )
     
     url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -40,7 +40,7 @@ class ScraperQueue(Base, TimestampMixin):
     
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'processing', 'complete', 'failed')",
+            "status IN ('pending', 'processing', 'completed', 'failed')",
             name="chk_scraper_status"
         ),
         CheckConstraint(
