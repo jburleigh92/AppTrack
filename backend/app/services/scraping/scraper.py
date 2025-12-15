@@ -28,45 +28,11 @@ class ScrapeResult:
 async def scrape_url(url: str) -> ScrapeResult:
     """
     Fetch HTML content from a job posting URL.
-    
+
     Returns:
         ScrapeResult with status, html, and metadata
     """
     try:
-        # --- FIX: Greenhouse embedded job handling with fallback ---
-        parsed = urlparse(url)
-        qs = parse_qs(parsed.query)
-
-        if "gh_jid" in qs:
-            job_id = qs["gh_jid"][0]
-            embed_url = f"https://boards.greenhouse.io/embed/job_app?gh_jid={job_id}"
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(embed_url)
-
-                if resp.status_code == 200:
-                    html = resp.text
-
-                    if html and len(html.strip()) >= 200:
-                        logger.info(
-                            "Successfully scraped Greenhouse job via embed",
-                            extra={"url": url, "job_id": job_id}
-                        )
-
-                        return ScrapeResult(
-                            status="success",
-                            url=url,
-                            html=html
-                        )
-
-                    logger.warning("Greenhouse embed returned empty HTML, falling back to page scrape")
-
-                else:
-                    logger.warning(
-                        f"Greenhouse embed returned {resp.status_code} for job {job_id}, falling back to page scrape"
-                    )
-        # --- END FIX ---
-
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
