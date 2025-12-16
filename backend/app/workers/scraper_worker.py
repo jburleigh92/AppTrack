@@ -131,6 +131,7 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
 
 
         # Step 5: Save to database
+        extraction_complete = bool(enriched.get("description"))
         job_posting = JobPosting(
             job_title=enriched.get("title", "Unknown"),
             company_name=enriched.get("company", "Unknown"),
@@ -139,19 +140,26 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
             salary_range=enriched.get("salary"),
             location=enriched.get("location"),
             employment_type=enriched.get("employment_type"),
-            extraction_complete=bool(enriched.get("description"))
+            extraction_complete=extraction_complete
         )
-        
+
         db.add(job_posting)
         db.flush()
-        
-        # Link to application
-        if application_id:
+
+        # Link to application ONLY if extraction completed successfully
+        # This enforces the invariant: incomplete job_postings cannot trigger analysis
+        if application_id and extraction_complete:
             application = db.query(Application).filter(Application.id == application_id).first()
             if application:
                 application.posting_id = job_posting.id
                 application.scraping_attempted = True
                 application.scraping_successful = True
+        elif application_id and not extraction_complete:
+            # Mark scraping as attempted but not successful for incomplete extraction
+            application = db.query(Application).filter(Application.id == application_id).first()
+            if application:
+                application.scraping_attempted = True
+                application.scraping_successful = False
         
         # Update queue job
         if has_meaningful_data:

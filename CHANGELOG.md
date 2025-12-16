@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Critical**: Enforced pipeline invariant to prevent incomplete job_postings from entering analysis
+  - Scraper now only links job_postings to applications when extraction_complete = true
+  - Added defense-in-depth validation in analysis endpoint to reject incomplete postings
+  - Incomplete job_postings are still persisted for debugging but quarantined from downstream processing
+  - Applications with failed extraction are marked scraping_successful = false
 
 ## Fixed
 - Resume upload now persists files using a UUID-based filename instead of the original client filename.
