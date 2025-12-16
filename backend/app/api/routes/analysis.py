@@ -42,7 +42,25 @@ def trigger_analysis(
                 status_code=400,
                 detail="Application has no linked job posting. Scrape the posting first."
             )
-        
+
+        # Validate job posting extraction is complete
+        from app.db.models.job_posting import JobPosting
+        job_posting = db.query(JobPosting).filter(
+            JobPosting.id == application.posting_id
+        ).first()
+
+        if not job_posting:
+            raise HTTPException(
+                status_code=400,
+                detail="Linked job posting not found"
+            )
+
+        if not job_posting.extraction_complete:
+            raise HTTPException(
+                status_code=400,
+                detail="Job posting extraction incomplete. Cannot analyze incomplete posting."
+            )
+
         # Create analysis queue job
         analysis_job = AnalysisQueue(
             application_id=application_id,
