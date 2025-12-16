@@ -4,6 +4,7 @@ from app.services.advisory.population import (
     AdvisoryPopulator,
     AdvisoryComputer,
     NoOpAdvisoryComputer,
+    populate_advisories_ws2,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "AdvisoryPopulator",
     "AdvisoryComputer",
     "NoOpAdvisoryComputer",
+    "populate_advisories_ws2",
 ]
