@@ -1,3 +1,6 @@
+print(">>> analysis_worker module loaded <<<")
+
+
 import asyncio
 import logging
 from datetime import datetime, timedelta
