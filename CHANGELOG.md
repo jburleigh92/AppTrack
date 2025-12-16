@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixes JS-rendered job postings (e.g., Stripe careers pages) that failed with HTML-only extraction
   - Works identically for direct scrapes and browser-captured applications
   - Ensures gh_jid parameter always triggers Greenhouse API attempt before HTML fallback
+- **Critical**: Fixed race condition between scraper and analysis workers
+  - Analysis worker now detects incomplete scraping (transient) vs truly missing data (permanent)
+  - Implements aggressive retry with backoff (10s, 30s, 2min) for scraping-in-progress cases
+  - Prevents hard failures when analysis job starts before scrape completes
+  - Max 3 retry attempts before marking as permanently failed
 
 ## Fixed
 - Resume upload now persists files using a UUID-based filename instead of the original client filename.

@@ -77,21 +77,64 @@ async def process_analysis_job(job: AnalysisQueue):
         )
     
     except MissingDataError as e:
-        logger.warning(f"Analysis job failed due to missing data: {str(e)}")
-        
-        # Permanent failure - don't retry
-        job.status = "failed"
-        job.completed_at = datetime.utcnow()
-        job.error_message = f"Missing data: {str(e)}"
-        
-        log_analysis_failed_sync(
-            db=db,
-            application_id=job.application_id,
-            reason="missing_data",
-            details=str(e)
-        )
-        
-        db.commit()
+        error_msg = str(e).lower()
+
+        # Check if this is a transient race condition (scraping in progress)
+        # vs permanent missing data (truly doesn't exist)
+        is_race_condition = any([
+            "has no linked job posting" in error_msg,
+            "job posting not found" in error_msg,
+            "has no description" in error_msg,
+        ])
+
+        if is_race_condition and job.attempts < job.max_attempts:
+            # Transient failure - scrape may still be in progress
+            # Retry with aggressive backoff: 10s, 30s, 2min
+            backoff_seconds = [10, 30, 120]
+            backoff_index = min(job.attempts - 1, len(backoff_seconds) - 1)
+            retry_delay = timedelta(seconds=backoff_seconds[backoff_index])
+
+            job.status = "pending"
+            job.retry_after = datetime.utcnow() + retry_delay
+            job.error_message = f"Waiting for scrape completion (attempt {job.attempts}): {str(e)}"
+
+            logger.info(
+                f"Analysis job waiting for scrape completion - will retry in {backoff_seconds[backoff_index]}s",
+                extra={
+                    "job_id": str(job.id),
+                    "application_id": str(job.application_id),
+                    "attempt": job.attempts,
+                    "error": str(e)
+                }
+            )
+
+            db.commit()
+        else:
+            # Permanent failure - data truly missing or max attempts exceeded
+            reason = "max_retries_exceeded" if job.attempts >= job.max_attempts else "missing_data"
+
+            logger.warning(
+                f"Analysis job failed due to missing data: {str(e)}",
+                extra={
+                    "job_id": str(job.id),
+                    "application_id": str(job.application_id),
+                    "attempts": job.attempts,
+                    "reason": reason
+                }
+            )
+
+            job.status = "failed"
+            job.completed_at = datetime.utcnow()
+            job.error_message = f"Missing data: {str(e)}"
+
+            log_analysis_failed_sync(
+                db=db,
+                application_id=job.application_id,
+                reason=reason,
+                details=str(e)
+            )
+
+            db.commit()
     
     except LLMError as e:
         logger.error(f"Analysis job failed due to LLM error: {str(e)}")
