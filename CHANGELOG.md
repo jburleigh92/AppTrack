@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Added
+- Resume upload API endpoint (`POST /api/v1/resumes/upload`)
+- Resume parsing worker for extracting structured fields from uploaded files
+
+### Fixed
+- API wiring to expose resume endpoints in FastAPI router
+- Worker startup and queue processing stability during resume parsing
+
+### Known Issues
+- Resume upload endpoint currently does not persist files to disk; parser worker fails when file path does not exist (to be addressed)
+
 ### Added
 - End-to-end Analysis Worker pipeline
 - Greenhouse Boards API integration for job scraping

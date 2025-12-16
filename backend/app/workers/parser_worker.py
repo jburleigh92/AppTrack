@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 async def process_parser_job(job: ParserQueue):
+    print(f">>> WORKER PICKED UP RESUME {job.id}")
     """
     Process a single parser job from the queue.
 

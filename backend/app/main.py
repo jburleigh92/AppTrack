@@ -11,6 +11,7 @@ from app.api.routes import (
     timeline,
     exports,
     internal,
+    resume,
 )
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -46,6 +47,8 @@ app.include_router(analysis.router, prefix=f"{settings.API_V1_PREFIX}/analysis",
 app.include_router(timeline.router, prefix=f"{settings.API_V1_PREFIX}/timeline", tags=["timeline"])
 app.include_router(exports.router, prefix=f"{settings.API_V1_PREFIX}/exports", tags=["exports"])
 app.include_router(internal.router, prefix=f"{settings.API_V1_PREFIX}/internal", tags=["internal"])
+app.include_router(resume.router, prefix=f"{settings.API_V1_PREFIX}/resume", tags=["resume"]
+)
 
 @app.get("/")
 async def root():
