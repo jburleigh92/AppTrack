@@ -72,85 +72,49 @@ def _cache_key(analysis_result_id: UUID, signal_type: str, model_version: str) -
     return hashlib.sha256(raw_key).hexdigest()
 
 
-class AdvisoryPopulator:
-    def __init__(self, computer: AdvisoryComputer, max_advisories: int = DEFAULT_MAX_ADVISORIES):
-        self.computer = computer
-        self.max_advisories = max_advisories
+def _is_feature_enabled(feature_state: Optional[P3FeatureState]) -> bool:
+    return bool(
+        feature_state
+        and feature_state.enabled
+        and feature_state.rollout_percent is not None
+        and feature_state.rollout_percent > 0
+    )
 
-    def populate_from_analysis(self, db: Session, analysis_result: AnalysisResult) -> None:
-        try:
-            feature_state = db.query(P3FeatureState).filter(
-                P3FeatureState.feature_name == FEATURE_NAME
-            ).first()
 
-            if not feature_state or not feature_state.enabled or feature_state.rollout_percent == 0:
-                return
+def _is_rollout_eligible(resume_id: UUID, rollout_percent: int) -> bool:
+    return _deterministic_bucket(resume_id) < rollout_percent
 
-            if _deterministic_bucket(analysis_result.resume_id) >= feature_state.rollout_percent:
-                return
 
-            planned_requests = list(self.computer.plan(analysis_result) or [])
-            if not planned_requests:
-                return
-
-            for request in planned_requests:
-                cache_key = _cache_key(analysis_result.id, request.signal_type, request.model_version)
-
-                existing_cache = db.query(P3AdvisoryCache).filter(
-                    P3AdvisoryCache.cache_key == cache_key
-                ).first()
-                if existing_cache:
-                    continue
-
-                self._ensure_budget(db=db, resume_id=analysis_result.resume_id)
-
-                if not self._consume_budget(db=db, resume_id=analysis_result.resume_id):
-                    continue
-
-                compute_result = self.computer.compute(analysis_result, request)
-                if not compute_result:
-                    continue
-
-                signal = P3AdvisorySignal(
-                    resume_id=analysis_result.resume_id,
-                    job_posting_id=analysis_result.job_posting_id,
-                    signal_type=compute_result.signal_type,
-                    signal_payload=compute_result.signal_payload,
-                    confidence_score=compute_result.confidence_score,
-                    model_version=compute_result.model_version,
-                    expires_at=compute_result.expires_at,
-                )
-
-                db.add(signal)
-                db.flush()
-
-                cache_insert = insert(P3AdvisoryCache).values(
-                    cache_key=cache_key,
-                    signal_id=signal.id,
-                ).on_conflict_do_nothing(index_elements=[P3AdvisoryCache.cache_key])
-
-                result = db.execute(cache_insert)
-                if result.rowcount == 0:
-                    db.delete(signal)
-                    db.flush()
-
-            db.commit()
-        except Exception:
-            logger.exception("Phase 3 advisory population failed; skipping")
-            db.rollback()
-
-    def _ensure_budget(self, db: Session, resume_id: UUID) -> None:
-        insert_stmt = insert(P3AdvisoryBudget).values(
-            resume_id=resume_id,
-            budget_day=date.today(),
-            max_advisories=self.max_advisories,
-            used_advisories=0,
-        ).on_conflict_do_nothing(index_elements=[P3AdvisoryBudget.resume_id, P3AdvisoryBudget.budget_day])
+def _ensure_budget(
+    db: Session, *, resume_id: UUID, max_advisories: int
+) -> bool:
+    try:
+        insert_stmt = (
+            insert(P3AdvisoryBudget)
+            .values(
+                resume_id=resume_id,
+                budget_day=date.today(),
+                max_advisories=max_advisories,
+                used_advisories=0,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    P3AdvisoryBudget.resume_id,
+                    P3AdvisoryBudget.budget_day,
+                ]
+            )
+        )
 
         db.execute(insert_stmt)
         db.flush()
+        return True
+    except Exception:
+        logger.debug("WS2: budget initialization failed; skipping", exc_info=True)
+        return False
 
-    def _consume_budget(self, db: Session, resume_id: UUID) -> bool:
+
+def _consume_budget(db: Session, *, resume_id: UUID) -> bool:
+    try:
         update_stmt = (
             update(P3AdvisoryBudget)
             .where(
@@ -163,3 +127,150 @@ class AdvisoryPopulator:
 
         result = db.execute(update_stmt)
         return result.rowcount == 1
+    except Exception:
+        logger.debug("WS2: budget consumption failed; skipping", exc_info=True)
+        return False
+
+
+def _select_cache(
+    db: Session, *, cache_key: str
+) -> tuple[Optional[P3AdvisoryCache], bool]:
+    try:
+        cache = (
+            db.query(P3AdvisoryCache)
+            .filter(P3AdvisoryCache.cache_key == cache_key)
+            .first()
+        )
+        return cache, True
+    except Exception:
+        logger.debug("WS2: cache lookup failed; skipping", exc_info=True)
+        return None, False
+
+
+def _persist_signal(
+    db: Session,
+    *,
+    analysis_result: AnalysisResult,
+    compute_result: AdvisoryComputationResult,
+    cache_key: str,
+) -> None:
+    try:
+        signal = P3AdvisorySignal(
+            resume_id=analysis_result.resume_id,
+            job_posting_id=analysis_result.job_posting_id,
+            signal_type=compute_result.signal_type,
+            signal_payload=compute_result.signal_payload,
+            confidence_score=compute_result.confidence_score,
+            model_version=compute_result.model_version,
+            expires_at=compute_result.expires_at,
+        )
+
+        db.add(signal)
+        db.flush()
+
+        cache_insert = (
+            insert(P3AdvisoryCache)
+            .values(cache_key=cache_key, signal_id=signal.id)
+            .on_conflict_do_nothing(index_elements=[P3AdvisoryCache.cache_key])
+        )
+
+        result = db.execute(cache_insert)
+
+        if result.rowcount == 0:
+            db.delete(signal)
+            db.flush()
+            _select_cache(db, cache_key=cache_key)
+    except Exception:
+        logger.debug("WS2: signal persistence failed; skipping", exc_info=True)
+        db.rollback()
+
+
+def populate_advisories_ws2(
+    db: Session,
+    *,
+    analysis_result: AnalysisResult,
+    computer: AdvisoryComputer,
+    max_advisories: int = DEFAULT_MAX_ADVISORIES,
+) -> None:
+    try:
+        feature_state = (
+            db.query(P3FeatureState)
+            .filter(P3FeatureState.feature_name == FEATURE_NAME)
+            .first()
+        )
+    except Exception:
+        logger.debug("WS2: feature state lookup failed; skipping", exc_info=True)
+        return
+
+    if not _is_feature_enabled(feature_state):
+        return
+
+    if not _is_rollout_eligible(
+        analysis_result.resume_id, feature_state.rollout_percent
+    ):
+        return
+
+    try:
+        planned_requests = list(computer.plan(analysis_result) or [])
+    except Exception:
+        logger.debug("WS2: computation planning failed; skipping", exc_info=True)
+        return
+
+    if not planned_requests:
+        return
+
+    for request in planned_requests:
+        try:
+            cache_key = _cache_key(
+                analysis_result.id, request.signal_type, request.model_version
+            )
+        except Exception:
+            logger.debug("WS2: cache key generation failed; skipping", exc_info=True)
+            continue
+
+        existing_cache, cache_lookup_ok = _select_cache(db, cache_key=cache_key)
+        if not cache_lookup_ok:
+            continue
+
+        if existing_cache:
+            continue
+
+        if not _ensure_budget(db, resume_id=analysis_result.resume_id, max_advisories=max_advisories):
+            continue
+
+        if not _consume_budget(db, resume_id=analysis_result.resume_id):
+            continue
+
+        try:
+            compute_result = computer.compute(analysis_result, request)
+        except Exception:
+            logger.debug("WS2: computation failed; skipping", exc_info=True)
+            continue
+
+        if not compute_result:
+            continue
+
+        _persist_signal(
+            db,
+            analysis_result=analysis_result,
+            compute_result=compute_result,
+            cache_key=cache_key,
+        )
+
+
+class AdvisoryPopulator:
+    def __init__(self, computer: AdvisoryComputer, max_advisories: int = DEFAULT_MAX_ADVISORIES):
+        self.computer = computer
+        self.max_advisories = max_advisories
+
+    def populate_from_analysis(self, db: Session, analysis_result: AnalysisResult) -> None:
+        try:
+            populate_advisories_ws2(
+                db,
+                analysis_result=analysis_result,
+                computer=self.computer,
+                max_advisories=self.max_advisories,
+            )
+        except Exception:
+            logger.debug("WS2: population failed; skipping", exc_info=True)
+            db.rollback()
