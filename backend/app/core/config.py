@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     LOG_LEVEL: str = "INFO"
 
+    # File upload settings
+    UPLOAD_DIR: str = "uploads"
+    RESUME_UPLOAD_DIR: str = "uploads/resumes"
+    MAX_UPLOAD_SIZE_MB: int = 10
+    ALLOWED_RESUME_MIME_TYPES: list = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ]
+
     HEADLESS_MIN_DESCRIPTION_LENGTH: int = 200
     
     llm_config: Dict[str, Any] = {
