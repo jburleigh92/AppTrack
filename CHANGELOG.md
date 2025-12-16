@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## Fixed
+- Resume upload now persists files using a UUID-based filename instead of the original client filename.
+- Uploaded resumes are stored at uploads/resumes/<uuid>.<ext> to prevent filename collisions & Ensure filesystem-safe storage
+- Decouple internal storage from user-provided filenames
+- Original filename is still preserved in the database (resumes.filename) for display and audit purposes.
+- Parser worker now reliably consumes resume files using the persisted file_path.
+
+## Notes
+- This change aligns the upload endpoint contract with the parser worker’s expectations and prevents file-not-found errors during resume parsing.
+
 ### Added
 - Resume upload API endpoint (`POST /api/v1/resumes/upload`)
 - Resume parsing worker for extracting structured fields from uploaded files
