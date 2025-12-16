@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added defense-in-depth validation in analysis endpoint to reject incomplete postings
   - Incomplete job_postings are still persisted for debugging but quarantined from downstream processing
   - Applications with failed extraction are marked scraping_successful = false
+- **Critical**: Made Greenhouse Boards API extraction source-agnostic for all gh_jid URLs
+  - Greenhouse API now retries with HTML-extracted company_slug if URL-derived slug fails
+  - Fixes JS-rendered job postings (e.g., Stripe careers pages) that failed with HTML-only extraction
+  - Works identically for direct scrapes and browser-captured applications
+  - Ensures gh_jid parameter always triggers Greenhouse API attempt before HTML fallback
 
 ## Fixed
 - Resume upload now persists files using a UUID-based filename instead of the original client filename.

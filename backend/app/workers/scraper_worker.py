@@ -56,7 +56,10 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
 
         # Step 1: Try Greenhouse Boards API first (before HTTP scrape)
         # Detect by gh_jid parameter, not by hostname
+        # This is source-agnostic: works for direct scrapes AND browser-captured applications
         job_id = extract_job_id(norm_url)
+        greenhouse_retry_with_html = False
+
         if job_id:
             # Try to get company_slug from URL (works for any domain)
             company_slug = extract_company_slug(norm_url, html=None)
@@ -86,15 +89,18 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                         needs_review=not bool(api_data.get('content'))
                     )
                 else:
-                    # API returned None (404 or error) - continue to HTTP scrape
-                    processing_metadata['greenhouse_api_result'] = 'not_found'
+                    # API returned None (404 or error)
+                    # Retry with HTML to extract correct company_slug
+                    processing_metadata['greenhouse_api_result'] = 'not_found_url_slug'
+                    greenhouse_retry_with_html = True
                     logger.info(
-                        f"Greenhouse Boards API returned 404 — falling back to HTTP scrape"
+                        f"Greenhouse Boards API returned 404 for URL-derived slug '{company_slug}' — will retry with HTML-extracted slug"
                     )
             else:
-                # Could not determine company_slug from URL - continue to HTTP scrape
+                # Could not determine company_slug from URL - try with HTML
+                greenhouse_retry_with_html = True
                 logger.info(
-                    f"Skipping Greenhouse Boards API — cannot determine company_slug from URL for job_id {job_id}, will try HTTP scrape"
+                    f"Could not extract company_slug from URL for job_id {job_id} — will try HTML extraction"
                 )
 
         # Step 2: HTTP scrape (only if API didn't provide data)
@@ -118,6 +124,48 @@ async def process_scrape_job(job: ScraperQueue, db: Session):
                     )
                     db.commit()
                 return
+
+            # Step 2b: Retry Greenhouse API with HTML-extracted company_slug
+            # This handles cases where:
+            # 1. Company slug couldn't be extracted from URL alone
+            # 2. URL-derived slug didn't match actual Greenhouse boards slug
+            # This ensures gh_jid URLs ALWAYS try Greenhouse API (source-agnostic)
+            if greenhouse_retry_with_html and job_id and scrape_result:
+                company_slug_from_html = extract_company_slug(norm_url, html=scrape_result.html)
+
+                if company_slug_from_html:
+                    logger.info(
+                        f"Retrying Greenhouse Boards API with HTML-extracted slug: {company_slug_from_html}/{job_id}"
+                    )
+                    processing_metadata['greenhouse_api_retry_with_html'] = True
+
+                    api_data = fetch_greenhouse_job(company_slug_from_html, job_id)
+
+                    if api_data:
+                        # API success - skip HTML extraction
+                        processing_metadata['greenhouse_api_result'] = 'success_html_slug'
+                        logger.info(
+                            f"Greenhouse Boards API success with HTML-extracted slug — skipping HTML extraction"
+                        )
+
+                        # Map API response to ExtractedData
+                        extracted = ExtractedData(
+                            title=api_data.get('title'),
+                            company=company_slug_from_html.replace('-', ' ').title(),
+                            location=api_data.get('location', {}).get('name') if isinstance(api_data.get('location'), dict) else None,
+                            description_html=api_data.get('content'),
+                            source='greenhouse',
+                            needs_review=not bool(api_data.get('content'))
+                        )
+                    else:
+                        processing_metadata['greenhouse_api_result'] = 'not_found_html_slug'
+                        logger.info(
+                            f"Greenhouse Boards API returned 404 with HTML-extracted slug — falling back to HTML extraction"
+                        )
+                else:
+                    logger.info(
+                        f"Could not extract company_slug from HTML for job_id {job_id} — falling back to HTML extraction"
+                    )
 
         # Step 3: Extract job data from HTML (if API didn't provide data)
         if extracted is None and scrape_result:
