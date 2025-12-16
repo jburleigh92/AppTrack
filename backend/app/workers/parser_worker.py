@@ -1,3 +1,5 @@
+print(">>> parser_worker module loaded <<<")
+
 import asyncio
 import logging
 from datetime import datetime

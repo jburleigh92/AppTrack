@@ -106,7 +106,7 @@ async def upload_resume(
             extra={
                 "resume_id": str(resume.id),
                 "parser_job_id": str(parser_job.id),
-                "filename": file.filename,
+                "uploaded_filename": file.filename,
                 "file_size": file_size,
                 "mime_type": file.content_type
             }
