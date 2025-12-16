@@ -12,13 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Resume upload API endpoint (`POST /api/v1/resumes/upload`)
 - Resume parsing worker for extracting structured fields from uploaded files
+- File persistence for uploaded resumes with automatic directory creation
+- Unique UUID-based filename generation for uploaded resumes
 
 ### Fixed
 - API wiring to expose resume endpoints in FastAPI router
 - Worker startup and queue processing stability during resume parsing
-
-### Known Issues
-- Resume upload endpoint currently does not persist files to disk; parser worker fails when file path does not exist (to be addressed)
+- Resume file persistence to disk (uploads/resumes/) before parser job enqueue
+- Parser worker contract: file_path now guaranteed to exist when job is processed
 
 ### Added
 - End-to-end Analysis Worker pipeline
