@@ -1,4 +1,5 @@
 from app.services.advisory.computation import AdvisoryContext, compute_advisories
+from app.services.advisory.exposure import get_advisory_envelope
 from app.services.advisory.population import (
     AdvisoryComputationRequest,
     AdvisoryComputationResult,
@@ -11,6 +12,7 @@ from app.services.advisory.population import (
 __all__ = [
     "AdvisoryContext",
     "compute_advisories",
+    "get_advisory_envelope",
     "AdvisoryComputationRequest",
     "AdvisoryComputationResult",
     "AdvisoryPopulator",

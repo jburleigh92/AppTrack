@@ -11,6 +11,7 @@ from app.schemas.analysis import (
     AnalysisJobEnqueueRequest,
     AnalysisJobEnqueueResponse
 )
+from app.services.advisory.exposure import get_advisory_envelope
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -133,6 +134,19 @@ def get_analysis(
                 detail="Analysis record not found"
             )
         
+        advisory_payload = None
+        try:
+            advisory_payload = get_advisory_envelope(
+                db,
+                resume_id=analysis.resume_id,
+                job_posting_id=analysis.job_posting_id,
+            )
+        except Exception:
+            logger.debug(
+                "WS5: advisory retrieval failed; continuing without advisory",
+                exc_info=True,
+            )
+
         return AnalysisResponse(
             id=analysis.id,
             application_id=analysis.application_id,
@@ -145,7 +159,8 @@ def get_analysis(
             llm_provider=analysis.llm_provider,
             llm_model=analysis.llm_model,
             analysis_metadata=analysis.analysis_metadata,
-            created_at=analysis.created_at
+            created_at=analysis.created_at,
+            advisory=advisory_payload,
         )
     
     except HTTPException:
