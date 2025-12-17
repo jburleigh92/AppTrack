@@ -12,6 +12,7 @@ from app.api.routes import (
     exports,
     internal,
     resume,
+    advisory,
 )
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -43,6 +44,7 @@ app.include_router(health.router, prefix=f"{settings.API_V1_PREFIX}/health", tag
 app.include_router(capture.router, prefix=f"{settings.API_V1_PREFIX}/applications", tags=["applications"])
 app.include_router(email_ingest.router, prefix=f"{settings.API_V1_PREFIX}/emails", tags=["emails"])
 app.include_router(scraper.router, prefix=f"{settings.API_V1_PREFIX}/scraper", tags=["scraper"])
+app.include_router(advisory.router, prefix=f"{settings.API_V1_PREFIX}/advisory", tags=["advisory"])
 app.include_router(analysis.router, prefix=f"{settings.API_V1_PREFIX}/analysis", tags=["analysis"])
 app.include_router(timeline.router, prefix=f"{settings.API_V1_PREFIX}/timeline", tags=["timeline"])
 app.include_router(exports.router, prefix=f"{settings.API_V1_PREFIX}/exports", tags=["exports"])
