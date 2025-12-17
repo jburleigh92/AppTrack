@@ -15,7 +15,13 @@ from app.db.models.p3 import (
     P3AdvisoryBudget,
     P3AdvisoryCache,
     P3AdvisorySignal,
-    P3FeatureState,
+)
+from app.services.advisory.feature_state import (
+    is_kill_switch_engaged,
+    is_rollout_eligible,
+    is_rollout_configured,
+    load_feature_state,
+    rollout_percent,
 )
 from app.services.advisory.observability import (
     EVENT_BUDGET_EXHAUSTED,
@@ -37,7 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_MAX_ADVISORIES = 1
-FEATURE_NAME = "p3_advisory"
 
 
 @dataclass(frozen=True)
@@ -77,27 +82,9 @@ class NoOpAdvisoryComputer:
         return None
 
 
-def _deterministic_bucket(resume_id: UUID) -> int:
-    digest = hashlib.sha256(resume_id.bytes).hexdigest()
-    return int(digest, 16) % 100
-
-
 def _cache_key(analysis_result_id: UUID, signal_type: str, model_version: str) -> str:
     raw_key = f"{analysis_result_id}{signal_type}{model_version}".encode("utf-8")
     return hashlib.sha256(raw_key).hexdigest()
-
-
-def _is_feature_enabled(feature_state: Optional[P3FeatureState]) -> bool:
-    return bool(
-        feature_state
-        and feature_state.enabled
-        and feature_state.rollout_percent is not None
-        and feature_state.rollout_percent > 0
-    )
-
-
-def _is_rollout_eligible(resume_id: UUID, rollout_percent: int) -> bool:
-    return _deterministic_bucket(resume_id) < rollout_percent
 
 
 def _ensure_budget(
@@ -276,43 +263,37 @@ def populate_advisories_ws2(
     computer: AdvisoryComputer,
     max_advisories: int = DEFAULT_MAX_ADVISORIES,
 ) -> None:
-    try:
-        feature_state = (
-            db.query(P3FeatureState)
-            .filter(P3FeatureState.feature_name == FEATURE_NAME)
-            .first()
-        )
-    except Exception:
-        logger.debug("WS2: feature state lookup failed; skipping", exc_info=True)
-        log_phase3_event(
-            EVENT_CONTRACT_VIOLATION,
-            advisory_stage="population.feature_state",
-            decision="skip",
-            reason="feature_state_lookup_failed",
-            analysis_result=analysis_result,
-        )
-        return
+    feature_state = load_feature_state(db)
 
-    if not _is_feature_enabled(feature_state):
+    if is_kill_switch_engaged(feature_state):
         log_phase3_event(
             EVENT_DISABLED_NOOP,
             advisory_stage="population.kill_switch",
             decision="skip",
-            reason="feature_disabled",
+            reason="kill_switch_engaged",
             analysis_result=analysis_result,
         )
         return
 
-    if not _is_rollout_eligible(
-        analysis_result.resume_id, feature_state.rollout_percent
-    ):
+    if not is_rollout_configured(feature_state):
+        log_phase3_event(
+            EVENT_DISABLED_NOOP,
+            advisory_stage="population.rollout",
+            decision="skip",
+            reason="rollout_percent_zero",
+            analysis_result=analysis_result,
+            extra={"rollout_percent": rollout_percent(feature_state)},
+        )
+        return
+
+    if not is_rollout_eligible(analysis_result.resume_id, feature_state):
         log_phase3_event(
             EVENT_ROLLOUT_INELIGIBLE,
             advisory_stage="population.rollout",
             decision="skip",
             reason="deterministic_bucket_ineligible",
             analysis_result=analysis_result,
-            extra={"rollout_percent": feature_state.rollout_percent},
+            extra={"rollout_percent": rollout_percent(feature_state)},
         )
         return
 
