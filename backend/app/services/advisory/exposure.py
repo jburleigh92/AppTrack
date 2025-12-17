@@ -16,6 +16,14 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.db.models.p3 import P3AdvisorySignal, P3FeatureState
+from app.services.advisory.observability import (
+    EVENT_CACHE_HIT,
+    EVENT_CACHE_MISS,
+    EVENT_DISABLED_NOOP,
+    EVENT_ROLLOUT_INELIGIBLE,
+    log_contract_violation,
+    log_phase3_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +84,36 @@ def get_advisory_envelope(
 
     feature_state = _load_feature_state(db)
     if not _is_feature_enabled(feature_state):
+        log_phase3_event(
+            EVENT_DISABLED_NOOP,
+            advisory_stage="exposure.kill_switch",
+            decision="skip",
+            reason="feature_disabled",
+            extra={"resume_id": str(resume_id), "job_posting_id": str(job_posting_id)},
+        )
         return None
 
     try:
         if not _is_rollout_eligible(resume_id, feature_state.rollout_percent):
+            log_phase3_event(
+                EVENT_ROLLOUT_INELIGIBLE,
+                advisory_stage="exposure.rollout",
+                decision="skip",
+                reason="deterministic_bucket_ineligible",
+                extra={
+                    "resume_id": str(resume_id),
+                    "job_posting_id": str(job_posting_id),
+                    "rollout_percent": feature_state.rollout_percent,
+                },
+            )
             return None
     except Exception:
         logger.debug("WS5: rollout eligibility failed; suppressing advisory", exc_info=True)
+        log_contract_violation(
+            advisory_stage="exposure.rollout",
+            reason="rollout_eligibility_error",
+            extra={"resume_id": str(resume_id), "job_posting_id": str(job_posting_id)},
+        )
         return None
 
     try:
@@ -102,10 +133,36 @@ def get_advisory_envelope(
         )
     except Exception:
         logger.debug("WS5: advisory signal lookup failed; suppressing", exc_info=True)
+        log_contract_violation(
+            advisory_stage="exposure.signal_lookup",
+            reason="signal_lookup_failed",
+            extra={"resume_id": str(resume_id), "job_posting_id": str(job_posting_id)},
+        )
         return None
 
     if not signals:
+        log_phase3_event(
+            EVENT_CACHE_MISS,
+            advisory_stage="exposure.signal_lookup",
+            decision="skip",
+            reason="no_active_signals",
+            extra={"resume_id": str(resume_id), "job_posting_id": str(job_posting_id)},
+            level="debug",
+        )
         return None
+
+    log_phase3_event(
+        EVENT_CACHE_HIT,
+        advisory_stage="exposure.signal_lookup",
+        decision="return_payload",
+        reason="signals_found",
+        extra={
+            "resume_id": str(resume_id),
+            "job_posting_id": str(job_posting_id),
+            "signal_count": len(signals),
+        },
+        level="debug",
+    )
 
     payload_signals: List[Dict[str, Any]] = []
     for signal in signals:
