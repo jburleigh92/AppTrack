@@ -7,7 +7,6 @@ callers.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -15,7 +14,14 @@ from uuid import UUID
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.db.models.p3 import P3AdvisorySignal, P3FeatureState
+from app.db.models.p3 import P3AdvisorySignal
+from app.services.advisory.feature_state import (
+    is_kill_switch_engaged,
+    is_rollout_eligible,
+    is_rollout_configured,
+    load_feature_state,
+    rollout_percent,
+)
 from app.services.advisory.observability import (
     EVENT_CACHE_HIT,
     EVENT_CACHE_MISS,
@@ -26,27 +32,6 @@ from app.services.advisory.observability import (
 )
 
 logger = logging.getLogger(__name__)
-
-FEATURE_NAME = "p3_advisory"
-
-
-def _deterministic_bucket(resume_id: UUID) -> int:
-    digest = hashlib.sha256(resume_id.bytes).hexdigest()
-    return int(digest, 16) % 100
-
-
-def _is_feature_enabled(feature_state: Optional[P3FeatureState]) -> bool:
-    return bool(
-        feature_state
-        and feature_state.enabled
-        and feature_state.rollout_percent is not None
-        and feature_state.rollout_percent > 0
-    )
-
-
-def _is_rollout_eligible(resume_id: UUID, rollout_percent: int) -> bool:
-    return _deterministic_bucket(resume_id) < rollout_percent
-
 
 def _safe_details(payload: Any) -> Optional[Dict[str, Any]]:
     if isinstance(payload, dict):
@@ -61,18 +46,6 @@ def _safe_summary(payload: Optional[Dict[str, Any]]) -> Optional[str]:
     return summary if isinstance(summary, str) else None
 
 
-def _load_feature_state(db: Session) -> Optional[P3FeatureState]:
-    try:
-        return (
-            db.query(P3FeatureState)
-            .filter(P3FeatureState.feature_name == FEATURE_NAME)
-            .first()
-        )
-    except Exception:
-        logger.debug("WS5: feature state lookup failed; suppressing advisory", exc_info=True)
-        return None
-
-
 def get_advisory_envelope(
     db: Session, *, resume_id: UUID, job_posting_id: UUID
 ) -> Optional[Dict[str, Any]]:
@@ -82,19 +55,34 @@ def get_advisory_envelope(
     computation. Any failure returns ``None`` to keep caller flows non-blocking.
     """
 
-    feature_state = _load_feature_state(db)
-    if not _is_feature_enabled(feature_state):
+    feature_state = load_feature_state(db)
+
+    if is_kill_switch_engaged(feature_state):
         log_phase3_event(
             EVENT_DISABLED_NOOP,
             advisory_stage="exposure.kill_switch",
             decision="skip",
-            reason="feature_disabled",
+            reason="kill_switch_engaged",
             extra={"resume_id": str(resume_id), "job_posting_id": str(job_posting_id)},
         )
         return None
 
+    if not is_rollout_configured(feature_state):
+        log_phase3_event(
+            EVENT_DISABLED_NOOP,
+            advisory_stage="exposure.rollout",
+            decision="skip",
+            reason="rollout_percent_zero",
+            extra={
+                "resume_id": str(resume_id),
+                "job_posting_id": str(job_posting_id),
+                "rollout_percent": rollout_percent(feature_state),
+            },
+        )
+        return None
+
     try:
-        if not _is_rollout_eligible(resume_id, feature_state.rollout_percent):
+        if not is_rollout_eligible(resume_id, feature_state):
             log_phase3_event(
                 EVENT_ROLLOUT_INELIGIBLE,
                 advisory_stage="exposure.rollout",
@@ -103,7 +91,7 @@ def get_advisory_envelope(
                 extra={
                     "resume_id": str(resume_id),
                     "job_posting_id": str(job_posting_id),
-                    "rollout_percent": feature_state.rollout_percent,
+                    "rollout_percent": rollout_percent(feature_state),
                 },
             )
             return None
