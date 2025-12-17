@@ -1,7 +1,17 @@
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
-from sqlalchemy import String, Text, Integer, ForeignKey, Index, CheckConstraint, DateTime
+from uuid import UUID as PyUUID, uuid4
+from sqlalchemy import (
+    String,
+    Text,
+    Integer,
+    ForeignKey,
+    Index,
+    CheckConstraint,
+    DateTime,
+    desc,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
@@ -10,13 +20,13 @@ from app.db.base import Base, TimestampMixin
 class ScraperQueue(Base, TimestampMixin):
     __tablename__ = "scraper_queue"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid4
     )
 
-    application_id: Mapped[Optional[UUID]] = mapped_column(
+    application_id: Mapped[Optional[PyUUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=True
@@ -37,7 +47,7 @@ class ScraperQueue(Base, TimestampMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     application = relationship("Application", back_populates="scraper_jobs")
-    
+
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending', 'processing', 'completed', 'failed')",
@@ -48,21 +58,30 @@ class ScraperQueue(Base, TimestampMixin):
             name="chk_scraper_attempts"
         ),
         Index("idx_scraper_queue_application_id", "application_id"),
-        Index("idx_scraper_queue_pending", "priority", "created_at", postgresql_ops={"priority": "DESC"}, postgresql_where="status = 'pending'"),
-        Index("idx_scraper_queue_stuck", "started_at", postgresql_where="status = 'processing'"),
+        Index(
+            "idx_scraper_queue_pending",
+            desc("priority"),
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index(
+            "idx_scraper_queue_stuck",
+            "started_at",
+            postgresql_where=text("status = 'processing'"),
+        ),
     )
 
 
 class ParserQueue(Base, TimestampMixin):
     __tablename__ = "parser_queue"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid4
     )
     
-    resume_id: Mapped[UUID] = mapped_column(
+    resume_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("resumes.id", ondelete="CASCADE"),
         nullable=False
@@ -93,21 +112,21 @@ class ParserQueue(Base, TimestampMixin):
             name="chk_parser_attempts"
         ),
         Index("idx_parser_queue_resume_id", "resume_id"),
-        Index("idx_parser_queue_pending", "created_at", postgresql_where="status = 'pending'"),
-        Index("idx_parser_queue_stuck", "started_at", postgresql_where="status = 'processing'"),
+        Index("idx_parser_queue_pending", "created_at", postgresql_where=text("status = 'pending'")),
+        Index("idx_parser_queue_stuck", "started_at", postgresql_where=text("status = 'processing'")),
     )
 
 
 class AnalysisQueue(Base, TimestampMixin):
     __tablename__ = "analysis_queue"
 
-    id: Mapped[UUID] = mapped_column(
+    id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid4
     )
     
-    application_id: Mapped[UUID] = mapped_column(
+    application_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=False
@@ -127,7 +146,7 @@ class AnalysisQueue(Base, TimestampMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     application = relationship("Application", back_populates="analysis_jobs")
-    
+
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending', 'processing', 'complete', 'failed')",
@@ -138,6 +157,15 @@ class AnalysisQueue(Base, TimestampMixin):
             name="chk_analysis_attempts"
         ),
         Index("idx_analysis_queue_application_id", "application_id"),
-        Index("idx_analysis_queue_pending", "priority", "created_at", postgresql_ops={"priority": "DESC"}, postgresql_where="status = 'pending'"),
-        Index("idx_analysis_queue_stuck", "started_at", postgresql_where="status = 'processing'"),
+        Index(
+            "idx_analysis_queue_pending",
+            desc("priority"),
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index(
+            "idx_analysis_queue_stuck",
+            "started_at",
+            postgresql_where=text("status = 'processing'"),
+        ),
     )

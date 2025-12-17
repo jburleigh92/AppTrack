@@ -1,28 +1,28 @@
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
-from sqlalchemy import String, Integer, ForeignKey, Index, CheckConstraint, Uuid
-from sqlalchemy.dialects.postgresql import JSONB
+from uuid import UUID as PyUUID, uuid4
+from sqlalchemy import String, Integer, ForeignKey, Index, CheckConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
     
-    id: Mapped[uuid4] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    
-    application_id: Mapped[uuid4] = mapped_column(
-        Uuid,
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    application_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=False
     )
-    resume_id: Mapped[uuid4] = mapped_column(
-        Uuid,
+    resume_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("resumes.id", ondelete="CASCADE"),
         nullable=False
     )
-    job_posting_id: Mapped[uuid4] = mapped_column(
-        Uuid,
+    job_posting_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("job_postings.id", ondelete="CASCADE"),
         nullable=False
     )
