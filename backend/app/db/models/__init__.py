@@ -6,6 +6,12 @@ from app.db.models.timeline import TimelineEvent
 from app.db.models.queue import ScraperQueue, ParserQueue, AnalysisQueue
 from app.db.models.email import ProcessedEmailUID
 from app.db.models.settings import Settings
+from app.db.models.p3 import (
+    P3AdvisorySignal,
+    P3AdvisoryBudget,
+    P3AdvisoryCache,
+    P3FeatureState,
+)
 
 __all__ = [
     "Application",
@@ -20,4 +26,8 @@ __all__ = [
     "AnalysisQueue",
     "ProcessedEmailUID",
     "Settings",
+    "P3AdvisorySignal",
+    "P3AdvisoryBudget",
+    "P3AdvisoryCache",
+    "P3FeatureState",
 ]

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.db.models.queue import AnalysisQueue
 from app.services.analysis import AnalysisService, MissingDataError, LLMError, LLMClient, LLMSettings
+from app.services.advisory import AdvisoryPopulator, NoOpAdvisoryComputer
 from app.services.timeline_service import (
     log_analysis_started_sync,
     log_analysis_completed_sync,
@@ -59,14 +60,19 @@ async def process_analysis_job(job: AnalysisQueue):
             db=db,
             application_id=job.application_id
         )
-        
+
         # Mark job complete
         job.status = "complete"
         job.completed_at = datetime.utcnow()
         job.error_message = None
-        
+
         db.commit()
-        
+
+        AdvisoryPopulator(NoOpAdvisoryComputer()).populate_from_analysis(
+            db=db,
+            analysis_result=analysis,
+        )
+
         logger.info(
             f"Analysis job completed successfully",
             extra={
