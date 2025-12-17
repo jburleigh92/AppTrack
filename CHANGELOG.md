@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Documented the WS3 advisory computation module that deterministically derives `timing_hint`, `fit_stability`, `confidence_adjustment`, and `opportunity_risk` signals without side effects.
+
 ### Fixed
 - **Critical**: Enforced pipeline invariant to prevent incomplete job_postings from entering analysis
   - Scraper now only links job_postings to applications when extraction_complete = true
