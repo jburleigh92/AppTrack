@@ -17,18 +17,27 @@ from app.db.models.p3 import (
     P3AdvisorySignal,
     P3FeatureState,
 )
+from app.services.advisory.observability import (
+    EVENT_BUDGET_EXHAUSTED,
+    EVENT_BUDGET_GRANTED,
+    EVENT_CACHE_HIT,
+    EVENT_CACHE_MISS,
+    EVENT_COMPUTE_ATTEMPTED,
+    EVENT_COMPUTE_ERROR,
+    EVENT_COMPUTE_SUCCESS,
+    EVENT_CONTRACT_VIOLATION,
+    EVENT_DISABLED_NOOP,
+    EVENT_ROLLOUT_INELIGIBLE,
+    enforce_p3_write_allowlist,
+    log_contract_violation,
+    log_phase3_event,
+)
 
 logger = logging.getLogger(__name__)
 
 
 DEFAULT_MAX_ADVISORIES = 1
 FEATURE_NAME = "p3_advisory"
-EVENT_CACHE_HIT = "phase3.cache_hit"
-EVENT_CACHE_MISS = "phase3.cache_miss"
-EVENT_BUDGET_GRANTED = "phase3.budget_granted"
-EVENT_BUDGET_EXHAUSTED = "phase3.budget_exhausted"
-EVENT_COMPUTE_SKIPPED_DISABLED = "phase3.compute_skipped_disabled"
-EVENT_COMPUTE_ERROR = "phase3.compute_error"
 
 
 @dataclass(frozen=True)
@@ -73,16 +82,6 @@ def _deterministic_bucket(resume_id: UUID) -> int:
     return int(digest, 16) % 100
 
 
-def _log_event(event: str, **context: object) -> None:
-    try:
-        if context:
-            logger.info("%s %s", event, context)
-        else:
-            logger.info(event)
-    except Exception:
-        logger.debug("WS4: failed to log event", exc_info=True)
-
-
 def _cache_key(analysis_result_id: UUID, signal_type: str, model_version: str) -> str:
     raw_key = f"{analysis_result_id}{signal_type}{model_version}".encode("utf-8")
     return hashlib.sha256(raw_key).hexdigest()
@@ -102,7 +101,11 @@ def _is_rollout_eligible(resume_id: UUID, rollout_percent: int) -> bool:
 
 
 def _ensure_budget(
-    db: Session, *, resume_id: UUID, max_advisories: int
+    db: Session,
+    *,
+    resume_id: UUID,
+    max_advisories: int,
+    analysis_result: Optional[AnalysisResult] = None,
 ) -> bool:
     try:
         insert_stmt = (
@@ -121,6 +124,12 @@ def _ensure_budget(
             )
         )
 
+        enforce_p3_write_allowlist(
+            table_name=P3AdvisoryBudget.__tablename__,
+            advisory_stage="population.budget_init",
+            analysis_result=analysis_result,
+        )
+
         db.execute(insert_stmt)
         db.flush()
         return True
@@ -129,7 +138,9 @@ def _ensure_budget(
         return False
 
 
-def _consume_budget(db: Session, *, resume_id: UUID) -> bool:
+def _consume_budget(
+    db: Session, *, resume_id: UUID, analysis_result: Optional[AnalysisResult] = None
+) -> bool:
     try:
         update_stmt = (
             update(P3AdvisoryBudget)
@@ -141,11 +152,21 @@ def _consume_budget(db: Session, *, resume_id: UUID) -> bool:
             .values(used_advisories=P3AdvisoryBudget.used_advisories + 1)
         )
 
+        enforce_p3_write_allowlist(
+            table_name=P3AdvisoryBudget.__tablename__,
+            advisory_stage="population.budget_consume",
+            analysis_result=analysis_result,
+        )
+
         result = db.execute(update_stmt)
         granted = result.rowcount == 1
-        _log_event(
+        log_phase3_event(
             EVENT_BUDGET_GRANTED if granted else EVENT_BUDGET_EXHAUSTED,
-            budget_day=str(date.today()),
+            advisory_stage="population.budget_consume",
+            decision="granted" if granted else "skipped",
+            reason="budget_consumed" if granted else "budget_exhausted",
+            analysis_result=analysis_result,
+            extra={"budget_day": str(date.today())},
         )
         return granted
     except Exception:
@@ -154,7 +175,10 @@ def _consume_budget(db: Session, *, resume_id: UUID) -> bool:
 
 
 def _select_cache(
-    db: Session, *, cache_key: str
+    db: Session,
+    *,
+    cache_key: str,
+    analysis_result: Optional[AnalysisResult] = None,
 ) -> tuple[Optional[P3AdvisoryCache], bool]:
     try:
         cache = (
@@ -162,7 +186,14 @@ def _select_cache(
             .filter(P3AdvisoryCache.cache_key == cache_key)
             .first()
         )
-        _log_event(EVENT_CACHE_HIT if cache else EVENT_CACHE_MISS, cache_key=cache_key)
+        log_phase3_event(
+            EVENT_CACHE_HIT if cache else EVENT_CACHE_MISS,
+            advisory_stage="population.cache_lookup",
+            decision="cache_hit" if cache else "cache_miss",
+            reason="cache_reused" if cache else "cache_absent",
+            analysis_result=analysis_result,
+            extra={"cache_key": cache_key},
+        )
         return cache, True
     except Exception:
         logger.debug("WS2: cache lookup failed; skipping", exc_info=True)
@@ -187,6 +218,12 @@ def _persist_signal(
             expires_at=compute_result.expires_at,
         )
 
+        enforce_p3_write_allowlist(
+            table_name=P3AdvisorySignal.__tablename__,
+            advisory_stage="population.persist_signal",
+            analysis_result=analysis_result,
+        )
+
         db.add(signal)
         db.flush()
 
@@ -196,14 +233,39 @@ def _persist_signal(
             .on_conflict_do_nothing(index_elements=[P3AdvisoryCache.cache_key])
         )
 
+        enforce_p3_write_allowlist(
+            table_name=P3AdvisoryCache.__tablename__,
+            advisory_stage="population.persist_cache",
+            analysis_result=analysis_result,
+        )
+
         result = db.execute(cache_insert)
 
         if result.rowcount == 0:
             db.delete(signal)
             db.flush()
-            _select_cache(db, cache_key=cache_key)
+            _select_cache(db, cache_key=cache_key, analysis_result=analysis_result)
+
+        log_phase3_event(
+            EVENT_COMPUTE_SUCCESS,
+            advisory_stage="population.persist_signal",
+            decision="persisted",
+            reason="signal_computed",
+            analysis_result=analysis_result,
+            extra={
+                "signal_type": compute_result.signal_type,
+                "cache_key": cache_key,
+                "model_version": compute_result.model_version,
+            },
+        )
     except Exception:
         logger.debug("WS2: signal persistence failed; skipping", exc_info=True)
+        log_contract_violation(
+            advisory_stage="population.persist_signal",
+            reason="persistence_failure",
+            analysis_result=analysis_result,
+            extra={"cache_key": cache_key},
+        )
         db.rollback()
 
 
@@ -222,24 +284,59 @@ def populate_advisories_ws2(
         )
     except Exception:
         logger.debug("WS2: feature state lookup failed; skipping", exc_info=True)
+        log_phase3_event(
+            EVENT_CONTRACT_VIOLATION,
+            advisory_stage="population.feature_state",
+            decision="skip",
+            reason="feature_state_lookup_failed",
+            analysis_result=analysis_result,
+        )
         return
 
     if not _is_feature_enabled(feature_state):
-        _log_event(EVENT_COMPUTE_SKIPPED_DISABLED)
+        log_phase3_event(
+            EVENT_DISABLED_NOOP,
+            advisory_stage="population.kill_switch",
+            decision="skip",
+            reason="feature_disabled",
+            analysis_result=analysis_result,
+        )
         return
 
     if not _is_rollout_eligible(
         analysis_result.resume_id, feature_state.rollout_percent
     ):
+        log_phase3_event(
+            EVENT_ROLLOUT_INELIGIBLE,
+            advisory_stage="population.rollout",
+            decision="skip",
+            reason="deterministic_bucket_ineligible",
+            analysis_result=analysis_result,
+            extra={"rollout_percent": feature_state.rollout_percent},
+        )
         return
 
     try:
         planned_requests = list(computer.plan(analysis_result) or [])
     except Exception:
         logger.debug("WS2: computation planning failed; skipping", exc_info=True)
+        log_phase3_event(
+            EVENT_CONTRACT_VIOLATION,
+            advisory_stage="population.plan",
+            decision="skip",
+            reason="computation_planning_failed",
+            analysis_result=analysis_result,
+        )
         return
 
     if not planned_requests:
+        log_phase3_event(
+            EVENT_CONTRACT_VIOLATION,
+            advisory_stage="population.plan",
+            decision="skip",
+            reason="no_planned_requests",
+            analysis_result=analysis_result,
+        )
         return
 
     for request in planned_requests:
@@ -249,29 +346,103 @@ def populate_advisories_ws2(
             )
         except Exception:
             logger.debug("WS2: cache key generation failed; skipping", exc_info=True)
+            log_phase3_event(
+                EVENT_CONTRACT_VIOLATION,
+                advisory_stage="population.cache_key",
+                decision="skip",
+                reason="cache_key_generation_failed",
+                analysis_result=analysis_result,
+                extra={"signal_type": request.signal_type},
+            )
             continue
 
-        existing_cache, cache_lookup_ok = _select_cache(db, cache_key=cache_key)
+        existing_cache, cache_lookup_ok = _select_cache(
+            db, cache_key=cache_key, analysis_result=analysis_result
+        )
         if not cache_lookup_ok:
+            log_phase3_event(
+                EVENT_CONTRACT_VIOLATION,
+                advisory_stage="population.cache_lookup",
+                decision="skip",
+                reason="cache_lookup_failed",
+                analysis_result=analysis_result,
+                extra={"cache_key": cache_key},
+            )
             continue
 
         if existing_cache:
+            log_phase3_event(
+                EVENT_CACHE_HIT,
+                advisory_stage="population.cache_lookup",
+                decision="reuse",
+                reason="cache_entry_exists",
+                analysis_result=analysis_result,
+                extra={"cache_key": cache_key},
+            )
             continue
 
-        if not _ensure_budget(db, resume_id=analysis_result.resume_id, max_advisories=max_advisories):
+        if not _ensure_budget(
+            db,
+            resume_id=analysis_result.resume_id,
+            max_advisories=max_advisories,
+            analysis_result=analysis_result,
+        ):
+            log_phase3_event(
+                EVENT_CONTRACT_VIOLATION,
+                advisory_stage="population.budget_init",
+                decision="skip",
+                reason="budget_initialization_failed",
+                analysis_result=analysis_result,
+            )
             continue
 
-        if not _consume_budget(db, resume_id=analysis_result.resume_id):
+        if not _consume_budget(
+            db, resume_id=analysis_result.resume_id, analysis_result=analysis_result
+        ):
+            log_phase3_event(
+                EVENT_BUDGET_EXHAUSTED,
+                advisory_stage="population.budget_consume",
+                decision="skip",
+                reason="budget_not_granted",
+                analysis_result=analysis_result,
+            )
             continue
 
         try:
+            log_phase3_event(
+                EVENT_COMPUTE_ATTEMPTED,
+                advisory_stage="population.compute",
+                decision="attempt",
+                reason="compute_invoked",
+                analysis_result=analysis_result,
+                extra={
+                    "signal_type": request.signal_type,
+                    "model_version": request.model_version,
+                },
+                level="debug",
+            )
             compute_result = computer.compute(analysis_result, request)
         except Exception:
-            _log_event(EVENT_COMPUTE_ERROR, signal_type=request.signal_type)
+            log_phase3_event(
+                EVENT_COMPUTE_ERROR,
+                advisory_stage="population.compute",
+                decision="skip",
+                reason="compute_error",
+                analysis_result=analysis_result,
+                extra={"signal_type": request.signal_type},
+            )
             logger.debug("WS2: computation failed; skipping", exc_info=True)
             continue
 
         if not compute_result:
+            log_phase3_event(
+                EVENT_CONTRACT_VIOLATION,
+                advisory_stage="population.compute",
+                decision="skip",
+                reason="no_compute_result",
+                analysis_result=analysis_result,
+                extra={"signal_type": request.signal_type},
+            )
             continue
 
         _persist_signal(
