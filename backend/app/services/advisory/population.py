@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ADVISORIES = 1
 FEATURE_NAME = "p3_advisory"
+EVENT_CACHE_HIT = "phase3.cache_hit"
+EVENT_CACHE_MISS = "phase3.cache_miss"
+EVENT_BUDGET_GRANTED = "phase3.budget_granted"
+EVENT_BUDGET_EXHAUSTED = "phase3.budget_exhausted"
+EVENT_COMPUTE_SKIPPED_DISABLED = "phase3.compute_skipped_disabled"
+EVENT_COMPUTE_ERROR = "phase3.compute_error"
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,16 @@ class NoOpAdvisoryComputer:
 def _deterministic_bucket(resume_id: UUID) -> int:
     digest = hashlib.sha256(resume_id.bytes).hexdigest()
     return int(digest, 16) % 100
+
+
+def _log_event(event: str, **context: object) -> None:
+    try:
+        if context:
+            logger.info("%s %s", event, context)
+        else:
+            logger.info(event)
+    except Exception:
+        logger.debug("WS4: failed to log event", exc_info=True)
 
 
 def _cache_key(analysis_result_id: UUID, signal_type: str, model_version: str) -> str:
@@ -126,7 +142,12 @@ def _consume_budget(db: Session, *, resume_id: UUID) -> bool:
         )
 
         result = db.execute(update_stmt)
-        return result.rowcount == 1
+        granted = result.rowcount == 1
+        _log_event(
+            EVENT_BUDGET_GRANTED if granted else EVENT_BUDGET_EXHAUSTED,
+            budget_day=str(date.today()),
+        )
+        return granted
     except Exception:
         logger.debug("WS2: budget consumption failed; skipping", exc_info=True)
         return False
@@ -141,6 +162,7 @@ def _select_cache(
             .filter(P3AdvisoryCache.cache_key == cache_key)
             .first()
         )
+        _log_event(EVENT_CACHE_HIT if cache else EVENT_CACHE_MISS, cache_key=cache_key)
         return cache, True
     except Exception:
         logger.debug("WS2: cache lookup failed; skipping", exc_info=True)
@@ -203,6 +225,7 @@ def populate_advisories_ws2(
         return
 
     if not _is_feature_enabled(feature_state):
+        _log_event(EVENT_COMPUTE_SKIPPED_DISABLED)
         return
 
     if not _is_rollout_eligible(
@@ -244,6 +267,7 @@ def populate_advisories_ws2(
         try:
             compute_result = computer.compute(analysis_result, request)
         except Exception:
+            _log_event(EVENT_COMPUTE_ERROR, signal_type=request.signal_type)
             logger.debug("WS2: computation failed; skipping", exc_info=True)
             continue
 
