@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from PyPDF2 import PdfReader
 from docx import Document
+from sqlalchemy.orm import Session
+from app.db.models.resume import Resume, ResumeData
 
 logger = logging.getLogger(__name__)
 
@@ -195,3 +197,120 @@ def parse_resume_fields(text: str) -> Dict[str, Any]:
         "education": extract_education_section(text),
         "raw_text_other": text
     }
+
+
+def parse_resume_sync(resume_id: str, db: Session) -> ResumeData:
+    """
+    Synchronously parse a resume file and persist results.
+
+    Args:
+        resume_id: ID of the resume to parse
+        db: Database session
+
+    Returns:
+        ResumeData object with parsed fields
+
+    Raises:
+        ValueError: If resume not found or parsing fails
+        Exception: For any unexpected errors
+    """
+    # Get resume record
+    resume = db.query(Resume).filter(Resume.id == resume_id).first()
+
+    if not resume:
+        raise ValueError(f"Resume not found: {resume_id}")
+
+    try:
+        # Update resume status to processing
+        resume.status = "processing"
+        db.commit()
+
+        #logger.info(
+            #"Starting synchronous resume parsing",
+            #extra={
+                #"resume_id": str(resume.id),
+                #"filename": resume.filename
+            #}
+        #)
+
+        # Extract text from resume file
+        text = extract_text_from_resume(resume.file_path, resume.mime_type)
+
+        if not text or len(text.strip()) == 0:
+            raise ValueError("No text extracted from resume")
+
+        # Parse resume fields
+        parsed_fields = parse_resume_fields(text)
+
+        # Check if resume_data already exists
+        existing_data = db.query(ResumeData).filter(
+            ResumeData.resume_id == resume.id
+        ).first()
+
+        if existing_data:
+            # Update existing record
+            existing_data.email = parsed_fields.get("email")
+            existing_data.phone = parsed_fields.get("phone")
+            existing_data.linkedin_url = parsed_fields.get("linkedin_url")
+            existing_data.skills = parsed_fields.get("skills", [])
+            existing_data.experience = parsed_fields.get("experience", [])
+            existing_data.education = parsed_fields.get("education", [])
+            existing_data.raw_text_other = parsed_fields.get("raw_text_other")
+            existing_data.extraction_complete = True
+
+            resume_data = existing_data
+        else:
+            # Create new resume_data record
+            resume_data = ResumeData(
+                resume_id=resume.id,
+                email=parsed_fields.get("email"),
+                phone=parsed_fields.get("phone"),
+                linkedin_url=parsed_fields.get("linkedin_url"),
+                skills=parsed_fields.get("skills", []),
+                experience=parsed_fields.get("experience", []),
+                education=parsed_fields.get("education", []),
+                certifications=[],
+                raw_text_other=parsed_fields.get("raw_text_other"),
+                extraction_complete=True
+            )
+
+            db.add(resume_data)
+
+        # Update resume status to parsed
+        resume.status = "parsed"
+        resume.error_message = None
+
+        db.commit()
+        db.refresh(resume_data)
+
+        logger.info(
+            "Resume parsing completed successfully",
+            extra={
+                "resume_id": str(resume.id),
+                "skills_count": len(parsed_fields.get("skills", [])),
+                "has_email": parsed_fields.get("email") is not None,
+                "has_phone": parsed_fields.get("phone") is not None
+            }
+        )
+
+        return resume_data
+
+    except ValueError as e:
+        logger.error(f"Resume parsing failed due to validation error: {str(e)}")
+
+        # Update resume status to failed
+        resume.status = "failed"
+        resume.error_message = str(e)
+        db.commit()
+
+        raise
+
+    except Exception as e:
+        logger.error(f"Unexpected error in resume parsing", exc_info=True)
+
+        # Update resume status to failed
+        resume.status = "failed"
+        resume.error_message = str(e)
+        db.commit()
+
+        raise

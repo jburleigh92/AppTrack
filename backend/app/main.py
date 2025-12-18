@@ -13,6 +13,7 @@ from app.api.routes import (
     internal,
     resume,
     advisory,
+    jobs,
 )
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -49,8 +50,8 @@ app.include_router(analysis.router, prefix=f"{settings.API_V1_PREFIX}/analysis",
 app.include_router(timeline.router, prefix=f"{settings.API_V1_PREFIX}/timeline", tags=["timeline"])
 app.include_router(exports.router, prefix=f"{settings.API_V1_PREFIX}/exports", tags=["exports"])
 app.include_router(internal.router, prefix=f"{settings.API_V1_PREFIX}/internal", tags=["internal"])
-app.include_router(resume.router, prefix=f"{settings.API_V1_PREFIX}/resume", tags=["resume"]
-)
+app.include_router(resume.router, prefix=f"{settings.API_V1_PREFIX}/resume", tags=["resume"])
+app.include_router(jobs.router, prefix=f"{settings.API_V1_PREFIX}/jobs", tags=["jobs"])
 
 @app.get("/")
 async def root():

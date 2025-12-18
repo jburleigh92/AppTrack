@@ -7,26 +7,28 @@ from sqlalchemy.orm import Session
 from sqlalchemy import update
 from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume
-from app.db.models.queue import ParserQueue
-from app.schemas.resume import ResumeUploadResponse, ResumeResponse
+from app.schemas.resume import ResumeUploadResponse, ResumeResponse, ResumeDataResponse
 from app.core.config import settings
+from app.services.resume_parser import parse_resume_sync
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.post("/upload", response_model=ResumeUploadResponse, status_code=202)
+@router.post("/upload", response_model=ResumeUploadResponse, status_code=200)
 async def upload_resume(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     """
-    Upload a resume file (PDF or DOCX).
+    Upload a resume file (PDF or DOCX) and parse it synchronously.
 
-    The file will be stored on disk and queued for parsing.
+    The file will be stored on disk and parsed immediately.
     Only one resume can be active at a time - uploading a new resume
     will automatically deactivate the previous active resume.
     """
+    file_path = None
+
     try:
         # Validate file type
         if file.content_type not in settings.ALLOWED_RESUME_MIME_TYPES:
@@ -84,39 +86,40 @@ async def upload_resume(
         )
 
         db.add(resume)
-        db.flush()  # Get resume.id without committing
-
-        # Create parser queue job
-        parser_job = ParserQueue(
-            resume_id=resume.id,
-            file_path=str(file_path),
-            priority=0,
-            status="pending",
-            attempts=0,
-            max_attempts=1
-        )
-
-        db.add(parser_job)
         db.commit()
         db.refresh(resume)
-        db.refresh(parser_job)
 
         logger.info(
-            "Resume uploaded and enqueued for parsing",
+            "Resume uploaded, starting synchronous parsing",
             extra={
                 "resume_id": str(resume.id),
-                "parser_job_id": str(parser_job.id),
                 "uploaded_filename": file.filename,
-                "file_size": file_size,
+              #  "file_size": file_size,
                 "mime_type": file.content_type
             }
         )
 
-        return ResumeUploadResponse(
-            resume_id=resume.id,
-            parser_job_id=parser_job.id,
-            status="enqueued"
-        )
+        # Parse resume synchronously
+        try:
+            resume_data = parse_resume_sync(resume.id, db)
+
+            return ResumeUploadResponse(
+                resume_id=resume.id,
+                status="parsed",
+                resume_data=ResumeDataResponse.from_orm(resume_data),
+                error_message=None
+            )
+
+        except ValueError as parse_error:
+            # Parsing failed due to validation error
+            logger.error(f"Resume parsing failed: {str(parse_error)}")
+
+            return ResumeUploadResponse(
+                resume_id=resume.id,
+                status="failed",
+                resume_data=None,
+                error_message=str(parse_error)
+            )
 
     except HTTPException:
         raise
@@ -125,7 +128,7 @@ async def upload_resume(
         db.rollback()
 
         # Clean up file if it was written
-        if 'file_path' in locals() and os.path.exists(file_path):
+        if file_path is not None and os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except Exception as cleanup_error:
@@ -151,3 +154,32 @@ def get_active_resume(db: Session = Depends(get_db)):
         )
 
     return resume
+
+
+@router.get("/{resume_id}/data", response_model=ResumeDataResponse)
+def get_resume_data(resume_id: str, db: Session = Depends(get_db)):
+    """
+    Get parsed resume data for a specific resume.
+    """
+    from app.db.models.resume import ResumeData
+    from uuid import UUID
+
+    try:
+        resume_uuid = UUID(resume_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid resume ID format"
+        )
+
+    resume_data = db.query(ResumeData).filter(
+        ResumeData.resume_id == resume_uuid
+    ).first()
+
+    if not resume_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Resume data not found. Resume may not have been parsed yet."
+        )
+
+    return resume_data

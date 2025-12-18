@@ -1,14 +1,27 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional, List, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
 
 
+class ResumeDataResponse(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    skills: List[str] = []
+    experience: List[Dict[str, Any]] = []
+    education: List[Dict[str, Any]] = []
+    extraction_complete: bool
+
+    class Config:
+        from_attributes = True
+
+
 class ResumeUploadResponse(BaseModel):
     resume_id: UUID
-    parser_job_id: UUID
-    status: Literal["enqueued"] = "enqueued"
-    message: str = "Resume uploaded and queued for parsing"
+    status: Literal["parsed", "failed"]
+    resume_data: Optional[ResumeDataResponse] = None
+    error_message: Optional[str] = None
 
 
 class ResumeResponse(BaseModel):
