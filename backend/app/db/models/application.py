@@ -36,6 +36,12 @@ class Application(Base):
         nullable=True
     )
 
+    resume_id: Mapped[Optional[PyUUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resumes.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -50,12 +56,14 @@ class Application(Base):
     
     posting = relationship("JobPosting", foreign_keys=[posting_id], back_populates="applications")
     analysis = relationship("AnalysisResult", foreign_keys=[analysis_id], uselist=False)
+    resume = relationship("Resume", foreign_keys=[resume_id])
     timeline_events = relationship("TimelineEvent", back_populates="application", cascade="all, delete-orphan")
     scraper_jobs = relationship("ScraperQueue", back_populates="application", cascade="all, delete-orphan")
     analysis_jobs = relationship("AnalysisQueue", back_populates="application", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_applications_analysis_id", "analysis_id"),
+        Index("idx_applications_resume_id", "resume_id"),
         Index("idx_applications_company_name", "company_name", postgresql_where=text("is_deleted = false")),
         Index(
             "idx_applications_created_at",
