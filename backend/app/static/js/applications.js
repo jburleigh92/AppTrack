@@ -139,6 +139,41 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
         });
+
+        // Add event listeners for delete buttons
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const appId = btn.dataset.appId;
+
+                // Find the application to get company name
+                const app = applications.find(a => a.id === appId);
+                const company = app ? app.company_name : 'this application';
+
+                // Confirm deletion
+                if (!confirm(`Are you sure you want to delete ${company}?`)) {
+                    return;
+                }
+
+                try {
+                    btn.disabled = true;
+                    btn.textContent = 'Deleting...';
+
+                    await apiFetch(`/applications/${appId}`, {
+                        method: 'DELETE',
+                    });
+
+                    showAlert('Application deleted successfully!', 'success');
+
+                    // Reload applications
+                    await loadApplications();
+                } catch (error) {
+                    showAlert('Error deleting application: ' + error.message, 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Delete';
+                }
+            });
+        });
     }
 
     async function loadApplicationDetails(appId) {
@@ -302,9 +337,14 @@ function createApplicationRow(app) {
                 </select>
             </td>
             <td>${formatDate(app.created_at)}</td>
+            <td>
+                <button class="btn btn-danger btn-small delete-btn" data-app-id="${app.id}" onclick="event.stopPropagation()">
+                    Delete
+                </button>
+            </td>
         </tr>
         <tr id="details-${app.id}">
-            <td colspan="4">
+            <td colspan="5">
                 <div class="app-details"></div>
             </td>
         </tr>

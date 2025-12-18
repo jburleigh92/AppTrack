@@ -189,3 +189,47 @@ def capture_application(
         logger.error(f"Failed to capture application: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to capture application")
+
+
+@router.delete("/{application_id}", status_code=204)
+def delete_application(
+    application_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Soft delete an application.
+
+    Marks the application as deleted (is_deleted=True) without removing it from the database.
+    """
+    try:
+        app_uuid = UUID(application_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid application ID format"
+        )
+
+    application = db.query(Application).filter(
+        Application.id == app_uuid,
+        Application.is_deleted == False
+    ).first()
+
+    if not application:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found"
+        )
+
+    # Soft delete
+    application.is_deleted = True
+    db.commit()
+
+    logger.info(
+        "application_deleted",
+        extra={
+            "application_id": str(application.id),
+            "company_name": application.company_name
+        }
+    )
+
+    return None
