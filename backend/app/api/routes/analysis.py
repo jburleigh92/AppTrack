@@ -38,6 +38,13 @@ def trigger_analysis(
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
 
+        # Check if application needs manual review
+        if application.needs_review:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot analyze: application marked for review. Complete manual review first, then retry analysis."
+            )
+
         # Check if job posting exists
         if not application.posting_id:
             raise HTTPException(

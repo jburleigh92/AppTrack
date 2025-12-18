@@ -59,9 +59,29 @@ def extract_job_data(html: str, url: str) -> ExtractedData:
     requirements_html = _extract_requirements(soup)
     posted_date = _extract_posted_date(soup)
     
-    # Determine if needs review
-    needs_review = not all([title, company, description_html])
-    
+    # Determine if needs review based on completeness and quality
+    needs_review = False
+    review_reasons = []
+
+    if not title:
+        needs_review = True
+        review_reasons.append("missing_title")
+
+    if not company:
+        needs_review = True
+        review_reasons.append("missing_company")
+
+    if not description_html:
+        needs_review = True
+        review_reasons.append("missing_description")
+    elif len(description_html.strip()) < 100:
+        needs_review = True
+        review_reasons.append("description_too_short")
+
+    if not requirements_html:
+        needs_review = True
+        review_reasons.append("missing_requirements")
+
     logger.info(
         "Extracted job data",
         extra={
@@ -70,7 +90,10 @@ def extract_job_data(html: str, url: str) -> ExtractedData:
             "has_title": bool(title),
             "has_company": bool(company),
             "has_description": bool(description_html),
-            "needs_review": needs_review
+            "description_length": len(description_html) if description_html else 0,
+            "has_requirements": bool(requirements_html),
+            "needs_review": needs_review,
+            "review_reasons": review_reasons
         }
     )
     
