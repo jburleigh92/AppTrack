@@ -1,6 +1,9 @@
 """FastAPI application entry point"""
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api.routes import (
     health,
@@ -55,9 +58,14 @@ app.include_router(jobs.router, prefix=f"{settings.API_V1_PREFIX}/jobs", tags=["
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
-    return {
-        "message": "Job Application Tracker API",
-        "version": "1.0.0",
-        "docs": "/docs",
-    }
+    """Serve the web UI"""
+    static_dir = Path(__file__).parent.parent / "static"
+    index_path = static_dir / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    else:
+        return {
+            "message": "Job Application Tracker API",
+            "version": "1.0.0",
+            "docs": "/docs",
+        }
