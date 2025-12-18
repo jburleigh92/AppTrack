@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const loading = document.getElementById('loading');
     const parsedData = document.getElementById('parsed-data');
     const continueBtn = document.getElementById('continue-btn');
+    const reparseBtn = document.getElementById('reparse-btn');
 
     // Check if active resume already exists
     try {
@@ -14,10 +15,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (activeResume && activeResume.extraction_complete) {
             displayParsedData(activeResume);
             continueBtn.disabled = false;
+            reparseBtn.classList.remove('hide');
         }
     } catch (error) {
         console.log('No active resume found, showing upload form');
     }
+
+    // Handle re-parse button click
+    reparseBtn.addEventListener('click', async () => {
+        reparseBtn.disabled = true;
+        reparseBtn.textContent = 'Re-Parsing...';
+        loading.classList.remove('hide');
+
+        try {
+            const response = await apiFetch('/resume/active/reparse', {
+                method: 'POST'
+            });
+
+            showAlert('Resume re-parsed successfully!', 'success');
+
+            // Reload active resume data
+            const activeResume = await checkActiveResume();
+            displayParsedData(activeResume);
+            continueBtn.disabled = false;
+
+        } catch (error) {
+            showAlert('Re-parse failed: ' + error.message, 'error');
+        } finally {
+            loading.classList.add('hide');
+            reparseBtn.disabled = false;
+            reparseBtn.textContent = 'Re-Parse Resume';
+        }
+    });
 
     // Handle form submission
     form.addEventListener('submit', async (e) => {
@@ -70,6 +99,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (result.resume_data.extraction_complete) {
                     continueBtn.disabled = false;
                 }
+
+                // Show re-parse button
+                reparseBtn.classList.remove('hide');
             } else {
                 showAlert('Resume upload failed. Please try again.', 'error');
             }
