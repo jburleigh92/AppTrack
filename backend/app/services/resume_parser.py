@@ -61,7 +61,9 @@ def extract_text_from_resume(file_path: str, mime_type: str) -> str:
 
 def extract_email(text: str) -> Optional[str]:
     """Extract email address from text."""
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    # Pattern that allows for email to follow phone number without space
+    # but requires letter at start of username part
+    email_pattern = r'[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}'
     match = re.search(email_pattern, text)
     return match.group(0) if match else None
 
@@ -130,22 +132,106 @@ def extract_experience_section(text: str) -> List[Dict[str, str]]:
     """
     experiences = []
 
-    # Look for experience section
-    experience_pattern = r'(?i)(experience|work history|employment)(.*?)(?=education|skills|projects|$)'
-    match = re.search(experience_pattern, text, re.DOTALL)
+    # Look for experience section with more flexible pattern
+    # Must be on its own line (section header, not inline mention)
+    experience_pattern = r'(?i)\n\s*((professional\s+)?experience|work\s+history|employment\s+history)\s*\n'
+    match = re.search(experience_pattern, text, re.IGNORECASE)
 
     if match:
-        experience_text = match.group(2)
+        # Get text starting from experience section
+        start_pos = match.end()
+        # Find end of experience section (next major section or end of text)
+        end_pattern = r'(?i)\n\s*(education|skills|projects|certifications|awards)\s*\n'
+        end_match = re.search(end_pattern, text[start_pos:])
 
-        # Split by common delimiters (company entries often have dates)
-        # Look for patterns like "Company Name | 2020-2023"
-        entries = re.split(r'\n(?=\S)', experience_text)
+        if end_match:
+            experience_text = text[start_pos:start_pos + end_match.start()]
+        else:
+            # Take a reasonable chunk if no clear end
+            experience_text = text[start_pos:start_pos + 3000]
 
-        for entry in entries:
-            if entry.strip():
+        # Look for job entries by identifying company/title patterns
+        # Split by multiple blank lines (indicates new job entry)
+        job_blocks = re.split(r'\n\s*\n\s*\n', experience_text)
+
+        for block in job_blocks:
+            block = block.strip()
+            if len(block) < 20:  # Too short to be a meaningful job entry
+                continue
+
+            lines = [l.strip() for l in block.split('\n') if l.strip()]
+            if not lines:
+                continue
+
+            # Try to extract title, company, and dates from first few lines
+            title = ''
+            company = ''
+            duration = ''
+            description_lines = []
+
+            # Look for patterns in first 3 lines
+            for i, line in enumerate(lines[:3]):
+                # Check for date pattern (e.g., "2020-2023", "Jan 2020 - Feb 2022")
+                date_pattern = r'\b(19|20)\d{2}\b|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+                date_match = re.search(date_pattern, line)
+
+                if date_match:
+                    # Line contains dates - might also contain company
+                    # Try to split company and dates
+                    # Dates are usually at the end: "Company Name, Location Date1 — Date2"
+                    date_start = date_match.start()
+
+                    # Extract company (everything before dates)
+                    company_part = line[:date_start].strip()
+                    # Remove trailing comma and location if present
+                    company_part = re.sub(r',?\s*[A-Z]{2}\s*$', '', company_part)  # Remove state code
+                    company_part = re.sub(r',?\s*[^,]+,\s*$', '', company_part)  # Remove "City,"
+
+                    if company_part and not company:
+                        company = company_part
+
+                    # Extract dates (everything from first date onwards)
+                    duration = line[date_start:].strip()
+                    description_lines = lines[i+1:]
+                    break
+                # Check for company/title pattern (contains "at" or "DBA" or company indicators)
+                elif i == 0:
+                    # First line is likely the title
+                    title = line
+                elif i == 1:
+                    # Second line might be company (even without dates)
+                    if 'DBA' in line or 'LLC' in line or 'Inc' in line or ',' in line:
+                        # Likely company line, even if no dates yet
+                        company = line
+                else:
+                    description_lines = lines[i:]
+                    break
+
+            # If we didn't find a clear break, use remaining lines as description
+            if not description_lines and len(lines) > 2:
+                description_lines = lines[2:]
+            elif not description_lines and len(lines) > 1:
+                description_lines = lines[1:]
+
+            # Build description from remaining lines
+            description = ' '.join(description_lines)
+
+            # Use first line as title if nothing better found
+            if not title and lines:
+                title = lines[0]
+
+            # Only add if we have meaningful content
+            if title and len(description) > 30:
                 experiences.append({
-                    "raw_text": entry.strip()
+                    "title": title[:100],  # Truncate very long titles
+                    "company": company[:100] if company else "",
+                    "duration": duration[:50] if duration else "",
+                    "description": description[:1000]  # Truncate very long descriptions
                 })
+
+            # Stop after 5 entries
+            if len(experiences) >= 5:
+                break
 
     return experiences
 
@@ -160,22 +246,53 @@ def extract_education_section(text: str) -> List[Dict[str, str]]:
     education = []
 
     # Look for education section
-    education_pattern = r'(?i)(education|academic background)(.*?)(?=experience|skills|projects|$)'
-    match = re.search(education_pattern, text, re.DOTALL)
+    education_pattern = r'(?i)education|academic\s+background|academic\s+qualifications'
+    match = re.search(education_pattern, text, re.IGNORECASE)
 
     if match:
-        education_text = match.group(2)
+        # Get text starting from education section
+        start_pos = match.end()
+        # Find end of education section (next major section or end of text)
+        end_pattern = r'(?i)\n\s*(experience|skills|projects|certifications|awards)\s*\n'
+        end_match = re.search(end_pattern, text[start_pos:])
 
-        # Split by line breaks for education entries
-        entries = re.split(r'\n(?=\S)', education_text)
+        if end_match:
+            education_text = text[start_pos:start_pos + end_match.start()]
+        else:
+            # Take a reasonable chunk if no clear end
+            education_text = text[start_pos:start_pos + 1000]
 
-        for entry in entries:
-            if entry.strip():
+        # Split into individual education entries
+        lines = education_text.split('\n')
+        current_entry = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if current_entry:
+                    entry_text = ' '.join(current_entry)
+                    if len(entry_text) > 5:  # Minimum meaningful length
+                        education.append({
+                            "degree": entry_text.split(',')[0] if ',' in entry_text else entry_text[:60],
+                            "institution": "",
+                            "year": ""
+                        })
+                    current_entry = []
+            else:
+                current_entry.append(line)
+
+        # Add last entry
+        if current_entry:
+            entry_text = ' '.join(current_entry)
+            if len(entry_text) > 5:
                 education.append({
-                    "raw_text": entry.strip()
+                    "degree": entry_text.split(',')[0] if ',' in entry_text else entry_text[:60],
+                    "institution": "",
+                    "year": ""
                 })
 
-    return education
+    # Limit to reasonable number of entries
+    return education[:3] if len(education) > 3 else education
 
 
 def parse_resume_fields(text: str) -> Dict[str, Any]:

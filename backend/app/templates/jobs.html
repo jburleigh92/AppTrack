@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Job Recommendations - AppTrack{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Recommended Jobs</h2>
+    <p>Based on your resume, here are the top job matches for you.</p>
+</div>
+
+<div id="loading" class="loading">
+    <p>Loading job recommendations...</p>
+</div>
+
+<div id="jobs-container"></div>
+
+<div id="empty-state" class="empty-state hide">
+    <h3>No Job Recommendations</h3>
+    <p>No jobs found matching your resume. Please try uploading a different resume.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/jobs.js"></script>
+{% endblock %}
