@@ -32,7 +32,7 @@ def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
 
 
 @router.get("/discover")
-def discover_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """
     Discover jobs based on active resume skills.
 
@@ -94,19 +94,13 @@ def discover_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 "resume_id": str(resume.id),
                 "user_skills_count": len(user_skills),
                 "total_applications": total_applications,
-                "reason": "no_extracted_postings"
+                "reason": "no_extracted_postings",
+                "message": message
             }
         )
 
-        return {
-            "jobs": [],
-            "message": message,
-            "diagnostics": {
-                "resume_skills_count": len(user_skills),
-                "total_jobs_in_system": total_applications,
-                "extracted_jobs_count": 0
-            }
-        }
+        # Return empty array to maintain API contract
+        return []
 
     # Build matched jobs list
     matched_jobs = []
@@ -162,18 +156,6 @@ def discover_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
         reverse=True
     )
 
-    # Prepare diagnostic message
-    if not matched_jobs:
-        message = "No jobs match your resume skills."
-    elif not user_skills:
-        message = f"{len(matched_jobs)} job(s) found, but no skills detected in resume. Upload a resume with skills for better matching."
-    else:
-        high_match_count = len([j for j in matched_jobs if j["match_percentage"] >= 60])
-        if high_match_count > 0:
-            message = f"Found {high_match_count} high-match job(s) (60%+ match)"
-        else:
-            message = f"Found {len(matched_jobs)} job(s) with varying match levels"
-
     logger.info(
         "Job discovery completed",
         extra={
@@ -184,12 +166,5 @@ def discover_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
         }
     )
 
-    return {
-        "jobs": matched_jobs,
-        "message": message,
-        "diagnostics": {
-            "resume_skills_count": len(user_skills),
-            "total_jobs_in_system": len(applications_with_postings),
-            "extracted_jobs_count": len(applications_with_postings)
-        }
-    }
+    # Return array to maintain API contract
+    return matched_jobs
