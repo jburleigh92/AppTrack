@@ -22,6 +22,7 @@ class ResumeUploadResponse(BaseModel):
     status: Literal["parsed", "failed"]
     resume_data: Optional[ResumeDataResponse] = None
     error_message: Optional[str] = None
+    warnings: List[str] = []
 
 
 class ResumeResponse(BaseModel):
