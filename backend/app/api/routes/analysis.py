@@ -24,8 +24,9 @@ def trigger_analysis(
 ):
     """
     Trigger AI analysis for an application.
-    
+
     Enqueues the analysis job for background processing.
+    Validates all prerequisites before enqueuing.
     """
     try:
         # Validate application exists
@@ -33,33 +34,67 @@ def trigger_analysis(
             Application.id == application_id,
             Application.is_deleted == False
         ).first()
-        
+
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
-        
+
         # Check if job posting exists
         if not application.posting_id:
             raise HTTPException(
-                status_code=400,
-                detail="Application has no linked job posting. Scrape the posting first."
+                status_code=422,
+                detail="Cannot analyze: job posting not linked. Wait for scraping to complete, then try again."
             )
 
         # Validate job posting extraction is complete
         from app.db.models.job_posting import JobPosting
+        from app.db.models.resume import Resume, ResumeData
+
         job_posting = db.query(JobPosting).filter(
             JobPosting.id == application.posting_id
         ).first()
 
         if not job_posting:
             raise HTTPException(
-                status_code=400,
-                detail="Linked job posting not found"
+                status_code=422,
+                detail="Cannot analyze: job posting not found. Wait for scraping to complete, then try again."
             )
 
         if not job_posting.extraction_complete:
             raise HTTPException(
-                status_code=400,
-                detail="Job posting extraction incomplete. Cannot analyze incomplete posting."
+                status_code=422,
+                detail="Cannot analyze: job posting still being scraped. Wait a moment and try again."
+            )
+
+        # Validate job description exists and is substantial
+        if not job_posting.description or len(job_posting.description.strip()) < 50:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot analyze: job description too short or missing. Job posting may need manual review."
+            )
+
+        # Validate active resume exists
+        active_resume = db.query(Resume).filter(Resume.is_active == True).first()
+        if not active_resume:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot analyze: no active resume found. Upload a resume first."
+            )
+
+        # Validate resume data exists and has skills
+        resume_data = db.query(ResumeData).filter(
+            ResumeData.resume_id == active_resume.id
+        ).first()
+
+        if not resume_data or not resume_data.extraction_complete:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot analyze: resume parsing not complete. Wait for resume processing to finish."
+            )
+
+        if not resume_data.skills or len(resume_data.skills) == 0:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot analyze: no skills found in resume. Upload a resume with skills listed, or add skills manually."
             )
 
         # Create analysis queue job
