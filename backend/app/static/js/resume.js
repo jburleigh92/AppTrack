@@ -61,13 +61,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Hide loading
             loading.classList.add('hide');
 
-            if (result.status === 'parsed') {
+            if (result.status === 'parsed' && result.resume_data) {
                 showAlert('Resume uploaded and parsed successfully!', 'success');
                 setActiveResumeId(result.resume_id);
-                displayParsedData(result);
+                displayParsedData(result.resume_data);
 
                 // Enable continue button if extraction is complete
-                if (result.extraction_complete) {
+                if (result.resume_data.extraction_complete) {
                     continueBtn.disabled = false;
                 }
             } else {

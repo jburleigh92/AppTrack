@@ -61,7 +61,9 @@ def extract_text_from_resume(file_path: str, mime_type: str) -> str:
 
 def extract_email(text: str) -> Optional[str]:
     """Extract email address from text."""
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    # Pattern that allows for email to follow phone number without space
+    # but requires letter at start of username part
+    email_pattern = r'[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}'
     match = re.search(email_pattern, text)
     return match.group(0) if match else None
 
@@ -130,24 +132,57 @@ def extract_experience_section(text: str) -> List[Dict[str, str]]:
     """
     experiences = []
 
-    # Look for experience section
-    experience_pattern = r'(?i)(experience|work history|employment)(.*?)(?=education|skills|projects|$)'
-    match = re.search(experience_pattern, text, re.DOTALL)
+    # Look for experience section with more flexible pattern
+    experience_pattern = r'(?i)(professional\s+)?experience|work\s+history|employment\s+history'
+    match = re.search(experience_pattern, text, re.IGNORECASE)
 
     if match:
-        experience_text = match.group(2)
+        # Get text starting from experience section
+        start_pos = match.end()
+        # Find end of experience section (next major section or end of text)
+        end_pattern = r'(?i)\n\s*(education|skills|projects|certifications|awards)\s*\n'
+        end_match = re.search(end_pattern, text[start_pos:])
 
-        # Split by common delimiters (company entries often have dates)
-        # Look for patterns like "Company Name | 2020-2023"
-        entries = re.split(r'\n(?=\S)', experience_text)
+        if end_match:
+            experience_text = text[start_pos:start_pos + end_match.start()]
+        else:
+            # Take a reasonable chunk if no clear end
+            experience_text = text[start_pos:start_pos + 2000]
 
-        for entry in entries:
-            if entry.strip():
+        # Split into individual job entries (lines starting with uppercase or numbers)
+        # But be more conservative to avoid over-splitting
+        lines = experience_text.split('\n')
+        current_entry = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if current_entry:
+                    entry_text = ' '.join(current_entry)
+                    if len(entry_text) > 10:  # Minimum meaningful length
+                        experiences.append({
+                            "title": entry_text.split(',')[0] if ',' in entry_text else entry_text[:50],
+                            "company": "",
+                            "duration": "",
+                            "description": entry_text
+                        })
+                    current_entry = []
+            else:
+                current_entry.append(line)
+
+        # Add last entry
+        if current_entry:
+            entry_text = ' '.join(current_entry)
+            if len(entry_text) > 10:
                 experiences.append({
-                    "raw_text": entry.strip()
+                    "title": entry_text.split(',')[0] if ',' in entry_text else entry_text[:50],
+                    "company": "",
+                    "duration": "",
+                    "description": entry_text
                 })
 
-    return experiences
+    # Limit to reasonable number of entries
+    return experiences[:5] if len(experiences) > 5 else experiences
 
 
 def extract_education_section(text: str) -> List[Dict[str, str]]:
@@ -160,22 +195,53 @@ def extract_education_section(text: str) -> List[Dict[str, str]]:
     education = []
 
     # Look for education section
-    education_pattern = r'(?i)(education|academic background)(.*?)(?=experience|skills|projects|$)'
-    match = re.search(education_pattern, text, re.DOTALL)
+    education_pattern = r'(?i)education|academic\s+background|academic\s+qualifications'
+    match = re.search(education_pattern, text, re.IGNORECASE)
 
     if match:
-        education_text = match.group(2)
+        # Get text starting from education section
+        start_pos = match.end()
+        # Find end of education section (next major section or end of text)
+        end_pattern = r'(?i)\n\s*(experience|skills|projects|certifications|awards)\s*\n'
+        end_match = re.search(end_pattern, text[start_pos:])
 
-        # Split by line breaks for education entries
-        entries = re.split(r'\n(?=\S)', education_text)
+        if end_match:
+            education_text = text[start_pos:start_pos + end_match.start()]
+        else:
+            # Take a reasonable chunk if no clear end
+            education_text = text[start_pos:start_pos + 1000]
 
-        for entry in entries:
-            if entry.strip():
+        # Split into individual education entries
+        lines = education_text.split('\n')
+        current_entry = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if current_entry:
+                    entry_text = ' '.join(current_entry)
+                    if len(entry_text) > 5:  # Minimum meaningful length
+                        education.append({
+                            "degree": entry_text.split(',')[0] if ',' in entry_text else entry_text[:60],
+                            "institution": "",
+                            "year": ""
+                        })
+                    current_entry = []
+            else:
+                current_entry.append(line)
+
+        # Add last entry
+        if current_entry:
+            entry_text = ' '.join(current_entry)
+            if len(entry_text) > 5:
                 education.append({
-                    "raw_text": entry.strip()
+                    "degree": entry_text.split(',')[0] if ',' in entry_text else entry_text[:60],
+                    "institution": "",
+                    "year": ""
                 })
 
-    return education
+    # Limit to reasonable number of entries
+    return education[:3] if len(education) > 3 else education
 
 
 def parse_resume_fields(text: str) -> Dict[str, Any]:
