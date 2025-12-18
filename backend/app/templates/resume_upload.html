@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Resume Upload - AppTrack{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Upload Your Resume</h2>
+
+    <form id="resume-upload-form">
+        <div class="form-group">
+            <label for="resume-file">Select Resume (PDF or DOCX, max 10MB)</label>
+            <input type="file" id="resume-file" name="file" accept=".pdf,.docx" required>
+        </div>
+        <button type="submit" class="btn btn-primary" id="upload-btn">Upload Resume</button>
+    </form>
+
+    <div id="loading" class="loading hide">
+        <p>Parsing resume...</p>
+    </div>
+
+    <div id="parsed-data" class="parsed-data hide">
+        <h3>Resume Parsed Successfully!</h3>
+
+        <div class="parsed-section" id="contact-section">
+            <h3>Contact Information</h3>
+            <div id="contact-info"></div>
+        </div>
+
+        <div class="parsed-section" id="skills-section">
+            <h3>Skills</h3>
+            <div class="skills-list" id="skills-list"></div>
+        </div>
+
+        <div class="parsed-section" id="experience-section">
+            <h3>Experience</h3>
+            <div class="experience-list" id="experience-list"></div>
+        </div>
+
+        <div class="parsed-section" id="education-section">
+            <h3>Education</h3>
+            <div class="education-list" id="education-list"></div>
+        </div>
+
+        <button id="continue-btn" class="btn btn-success" disabled>Continue to Jobs</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/resume.js"></script>
+{% endblock %}
