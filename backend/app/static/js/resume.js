@@ -112,13 +112,20 @@ function displayParsedData(data) {
     // Experience
     const experienceList = document.getElementById('experience-list');
     if (data.experience && data.experience.length > 0) {
-        experienceList.innerHTML = data.experience.map(exp => `
-            <div class="experience-item">
-                <strong>${exp.title || 'Unknown Title'}</strong> at ${exp.company || 'Unknown Company'}
-                ${exp.duration ? `<br><small>${exp.duration}</small>` : ''}
-                ${exp.description ? `<p>${exp.description}</p>` : ''}
-            </div>
-        `).join('');
+        experienceList.innerHTML = data.experience.map(exp => {
+            const title = exp.title || 'Position';
+            const company = exp.company || '';
+            const duration = exp.duration || '';
+            const description = exp.description || '';
+
+            return `
+                <div class="experience-item">
+                    <strong>${title}</strong>${company ? ` at ${company}` : ''}
+                    ${duration ? `<br><small>${duration}</small>` : ''}
+                    ${description ? `<p style="margin-top: 0.5rem;">${description}</p>` : ''}
+                </div>
+            `;
+        }).join('');
     } else {
         experienceList.innerHTML = '<p>No experience found</p>';
     }
@@ -126,13 +133,19 @@ function displayParsedData(data) {
     // Education
     const educationList = document.getElementById('education-list');
     if (data.education && data.education.length > 0) {
-        educationList.innerHTML = data.education.map(edu => `
-            <div class="education-item">
-                <strong>${edu.degree || 'Unknown Degree'}</strong>
-                ${edu.institution ? `<br>${edu.institution}` : ''}
-                ${edu.year ? `<br><small>${edu.year}</small>` : ''}
-            </div>
-        `).join('');
+        educationList.innerHTML = data.education.map(edu => {
+            const degree = edu.degree || 'Degree';
+            const institution = edu.institution || '';
+            const year = edu.year || '';
+
+            return `
+                <div class="education-item">
+                    <strong>${degree}</strong>
+                    ${institution ? `<br>${institution}` : ''}
+                    ${year ? `<br><small>${year}</small>` : ''}
+                </div>
+            `;
+        }).join('');
     } else {
         educationList.innerHTML = '<p>No education found</p>';
     }
