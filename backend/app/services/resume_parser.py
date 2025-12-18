@@ -225,13 +225,13 @@ def parse_resume_sync(resume_id: str, db: Session) -> ResumeData:
         resume.status = "processing"
         db.commit()
 
-        logger.info(
-            "Starting synchronous resume parsing",
-            extra={
-                "resume_id": str(resume.id),
-                "filename": resume.filename
-            }
-        )
+        #logger.info(
+            #"Starting synchronous resume parsing",
+            #extra={
+                #"resume_id": str(resume.id),
+                #"filename": resume.filename
+            #}
+        #)
 
         # Extract text from resume file
         text = extract_text_from_resume(resume.file_path, resume.mime_type)
