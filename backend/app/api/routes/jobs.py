@@ -113,7 +113,8 @@ def _infer_skills_from_title(title: str) -> Set[str]:
     """
     Infer likely technical skills from job title.
 
-    Provides fallback signal when job description has poor skill coverage.
+    Aggressively extracts skills to maximize matching when job content unavailable.
+    Uses multi-pass approach: direct skill mentions, role keywords, seniority hints.
     """
     if not title:
         return set()
@@ -121,27 +122,80 @@ def _infer_skills_from_title(title: str) -> Set[str]:
     title_lower = title.lower()
     inferred = set()
 
-    # Role-based inference rules
+    # PASS 1: Direct skill mentions in title (e.g., "Python Engineer", "React Developer")
+    for skill in TECHNICAL_SKILLS:
+        if skill.lower() in title_lower:
+            inferred.add(skill)
+
+    # PASS 2: Role-based inference with expanded, comprehensive skill sets
     role_skills = {
-        "frontend": {"JavaScript", "TypeScript", "React", "HTML", "CSS", "Web"},
-        "backend": {"API", "Database", "Python", "Java", "Go"},
-        "fullstack": {"JavaScript", "Python", "React", "API", "Database"},
-        "full stack": {"JavaScript", "Python", "React", "API", "Database"},
-        "devops": {"Docker", "Kubernetes", "CI/CD", "AWS", "Linux"},
-        "data": {"Python", "SQL", "Machine Learning", "Pandas"},
-        "ml": {"Python", "Machine Learning", "TensorFlow", "PyTorch"},
-        "machine learning": {"Python", "Machine Learning", "TensorFlow"},
-        "mobile": {"iOS", "Android", "React Native", "Mobile"},
-        "ios": {"Swift", "iOS", "SwiftUI"},
-        "android": {"Kotlin", "Java", "Android"},
-        "security": {"Security", "Cybersecurity", "Encryption"},
-        "cloud": {"AWS", "Azure", "GCP", "Cloud", "DevOps"},
-        "infrastructure": {"Docker", "Kubernetes", "Terraform", "Infrastructure"}
+        # Frontend roles
+        "frontend": {"JavaScript", "TypeScript", "React", "Angular", "Vue", "HTML", "CSS",
+                     "Redux", "Webpack", "Git", "API", "Web"},
+        "front end": {"JavaScript", "TypeScript", "React", "Angular", "Vue", "HTML", "CSS",
+                      "Redux", "Webpack", "Git", "API", "Web"},
+        "ui": {"JavaScript", "TypeScript", "React", "HTML", "CSS", "Design"},
+        "web developer": {"JavaScript", "HTML", "CSS", "React", "Node.js", "API", "Git"},
+
+        # Backend roles
+        "backend": {"API", "Database", "SQL", "Python", "Java", "Go", "Node.js",
+                    "Microservices", "REST", "PostgreSQL", "Redis", "Git"},
+        "back end": {"API", "Database", "SQL", "Python", "Java", "Go", "Node.js",
+                     "Microservices", "REST", "PostgreSQL", "Redis", "Git"},
+        "api": {"API", "REST", "GraphQL", "Microservices", "Database", "Python", "Node.js"},
+
+        # Fullstack roles
+        "fullstack": {"JavaScript", "TypeScript", "Python", "React", "Node.js", "API",
+                      "Database", "SQL", "PostgreSQL", "Git", "HTML", "CSS", "REST"},
+        "full stack": {"JavaScript", "TypeScript", "Python", "React", "Node.js", "API",
+                       "Database", "SQL", "PostgreSQL", "Git", "HTML", "CSS", "REST"},
+        "full-stack": {"JavaScript", "TypeScript", "Python", "React", "Node.js", "API",
+                       "Database", "SQL", "PostgreSQL", "Git", "HTML", "CSS", "REST"},
+
+        # Generic engineering (broadest match - catches "Senior Engineer", "Staff Engineer")
+        "software engineer": {"Python", "JavaScript", "Java", "Git", "API", "Database", "SQL",
+                              "Problem Solving", "System Design", "Agile"},
+        "engineer": {"Git", "Problem Solving", "System Design", "API", "Database"},
+        "developer": {"Git", "API", "Database", "Problem Solving"},
+        "programmer": {"Git", "Problem Solving"},
+
+        # DevOps/Infrastructure
+        "devops": {"Docker", "Kubernetes", "CI/CD", "AWS", "Linux", "Terraform", "Git",
+                   "Jenkins", "Python", "Bash"},
+        "sre": {"Kubernetes", "Docker", "Monitoring", "Linux", "Python", "AWS", "Terraform"},
+        "infrastructure": {"Docker", "Kubernetes", "Terraform", "AWS", "Linux", "Networking"},
+        "platform": {"Kubernetes", "Docker", "CI/CD", "AWS", "Infrastructure", "Python"},
+
+        # Data roles
+        "data engineer": {"Python", "SQL", "Spark", "Airflow", "Kafka", "Database", "ETL"},
+        "data scientist": {"Python", "Machine Learning", "SQL", "Pandas", "NumPy", "Statistics"},
+        "data": {"Python", "SQL", "Database", "Analytics"},
+        "analytics": {"SQL", "Python", "Tableau", "Analytics"},
+
+        # ML/AI roles
+        "ml": {"Python", "Machine Learning", "TensorFlow", "PyTorch", "Scikit-learn"},
+        "machine learning": {"Python", "Machine Learning", "TensorFlow", "PyTorch", "Deep Learning"},
+        "ai": {"Python", "Machine Learning", "TensorFlow", "PyTorch", "AI"},
+
+        # Mobile
+        "mobile": {"iOS", "Android", "React Native", "Flutter", "Mobile"},
+        "ios": {"Swift", "iOS", "SwiftUI", "UIKit", "Xcode"},
+        "android": {"Kotlin", "Java", "Android", "Jetpack Compose"},
+
+        # Security
+        "security": {"Security", "Cybersecurity", "Encryption", "Networking", "Linux"},
+
+        # Cloud
+        "cloud": {"AWS", "Azure", "GCP", "Docker", "Kubernetes", "Terraform"},
     }
 
     for keyword, skills in role_skills.items():
         if keyword in title_lower:
             inferred.update(skills)
+
+    # PASS 3: If still no skills, use generic tech baseline
+    if not inferred:
+        inferred = {"Git", "Problem Solving", "Communication", "Agile"}
 
     return inferred
 
