@@ -96,20 +96,67 @@ def extract_skills(text: str) -> List[str]:
     """
     Extract skills from resume text.
 
-    This is a simple implementation that looks for common skill keywords.
-    A more sophisticated implementation could use NLP or ML.
+    Uses comprehensive skill dictionary (200+ skills) matching job discovery logic.
+    This ensures resume skills and job skills use the same vocabulary.
     """
-    # Common technical skills
-    common_skills = [
-        "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "Go", "Rust", "Ruby",
-        "React", "Angular", "Vue", "Node.js", "Django", "Flask", "FastAPI", "Spring",
-        "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch",
-        "AWS", "Azure", "GCP", "Docker", "Kubernetes", "CI/CD", "Git",
-        "REST", "GraphQL", "API", "Microservices", "Agile", "Scrum",
-        "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch",
-        "HTML", "CSS", "SASS", "Tailwind", "Bootstrap",
-        "Linux", "Unix", "Bash", "Shell", "DevOps", "Terraform"
-    ]
+    # Comprehensive technical skills dictionary (must match jobs.py for consistency)
+    # Organized by category for maintainability
+    common_skills = {
+        # Programming Languages
+        "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "Go", "Rust", "Ruby",
+        "PHP", "Swift", "Kotlin", "Scala", "R", "MATLAB", "Perl", "Shell", "Bash",
+
+        # Web Frameworks & Libraries
+        "React", "Angular", "Vue", "Svelte", "Next.js", "Nuxt", "Django", "Flask",
+        "FastAPI", "Express", "Node.js", "Spring", "Spring Boot", "Rails", "Laravel",
+        "ASP.NET", "jQuery", "Bootstrap", "Tailwind", "Material-UI", "Redux", "GraphQL",
+
+        # Databases & Storage
+        "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "Cassandra",
+        "DynamoDB", "Oracle", "SQL Server", "MariaDB", "Neo4j", "CouchDB", "InfluxDB",
+        "Snowflake", "BigQuery", "Redshift",
+
+        # Cloud & Infrastructure
+        "AWS", "Azure", "GCP", "Google Cloud", "Heroku", "DigitalOcean", "Vercel",
+        "Netlify", "Cloudflare", "Lambda", "EC2", "S3", "CloudFormation", "ARM",
+
+        # DevOps & Tools
+        "Docker", "Kubernetes", "K8s", "Terraform", "Ansible", "Jenkins", "CircleCI",
+        "GitHub Actions", "GitLab CI", "Travis CI", "Prometheus", "Grafana", "Datadog",
+        "New Relic", "Splunk", "ELK", "Kafka", "RabbitMQ", "Nginx", "Apache",
+
+        # Data & ML
+        "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch", "Keras", "Scikit-learn",
+        "Pandas", "NumPy", "Jupyter", "Spark", "Hadoop", "Airflow", "dbt", "Tableau",
+        "Power BI", "Looker", "ML", "AI", "NLP", "Computer Vision", "LLM",
+
+        # Mobile
+        "iOS", "Android", "React Native", "Flutter", "SwiftUI", "UIKit", "Jetpack Compose",
+
+        # Testing & Quality
+        "Jest", "Pytest", "JUnit", "Selenium", "Cypress", "TestNG", "Mocha", "Chai",
+        "TDD", "CI/CD", "QA",
+
+        # Methodologies & Concepts
+        "Agile", "Scrum", "Kanban", "Microservices", "REST", "API", "gRPC", "WebSockets",
+        "OAuth", "SAML", "JWT", "Git", "GitHub", "GitLab", "Bitbucket", "JIRA",
+        "Confluence", "Slack", "Linux", "Unix", "Windows", "macOS",
+
+        # Security
+        "Security", "Cybersecurity", "Penetration Testing", "OWASP", "Encryption", "SSL",
+        "TLS", "VPN", "Firewall", "IAM",
+
+        # Emerging Tech
+        "Blockchain", "Ethereum", "Solidity", "Web3", "NFT", "Cryptocurrency", "Bitcoin",
+        "AR", "VR", "IoT", "Edge Computing", "Serverless",
+
+        # Soft Skills (Technical Adjacent)
+        "Leadership", "Mentoring", "Architecture", "System Design", "Problem Solving",
+        "Communication", "Collaboration", "Code Review",
+
+        # Additional common skills
+        "HTML", "CSS", "SASS", "SCSS"
+    }
 
     found_skills = []
     text_lower = text.lower()
