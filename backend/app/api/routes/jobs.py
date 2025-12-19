@@ -1,10 +1,11 @@
 import logging
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume, ResumeData
-from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs
+from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs, fetch_greenhouse_job
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -213,6 +214,64 @@ def _infer_skills_from_title(title: str) -> Set[str]:
     return inferred
 
 
+def _passes_role_domain_filter(job_title: str) -> bool:
+    """
+    Configuration-driven role domain filter.
+
+    Checks if job title matches the active role domain requirements.
+    This is NOT hard-coded - configured via settings.ACTIVE_ROLE_DOMAIN.
+
+    Returns:
+        True if job passes filter, False if should be excluded
+    """
+    active_domain = settings.ACTIVE_ROLE_DOMAIN
+    domain_config = settings.ROLE_DOMAINS.get(active_domain, {})
+
+    require_keywords = domain_config.get("require_any", [])
+    exclude_keywords = domain_config.get("exclude_any", [])
+
+    title_lower = job_title.lower()
+
+    # If exclude keywords present, check exclusions first
+    for exclude_word in exclude_keywords:
+        if exclude_word.lower() in title_lower:
+            return False
+
+    # If require keywords specified, check requirements
+    if require_keywords:
+        for require_word in require_keywords:
+            if require_word.lower() in title_lower:
+                return True
+        return False  # No required keyword found
+
+    # Default: pass if no constraints
+    return True
+
+
+def _enrich_job_with_description(company_slug: str, job_id: str, job: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Fetch full job description for a single job.
+
+    Used for selective enrichment of top candidates.
+    Caches in job dict to avoid redundant API calls.
+
+    Returns:
+        Updated job dict with 'content' field, or None if fetch fails
+    """
+    if job.get("content"):
+        return job  # Already has content
+
+    # Fetch full job details
+    full_job = fetch_greenhouse_job(company_slug, str(job_id))
+
+    if full_job and full_job.get("content"):
+        job["content"] = full_job["content"]
+        job["enriched"] = True
+        return job
+
+    return None
+
+
 def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
     """
     Extract skills from job description text by matching against known skills.
@@ -267,31 +326,50 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     all_jobs = []
     for company_slug in TARGET_COMPANIES:
         company_jobs = fetch_all_greenhouse_jobs(company_slug)
+        # Store company_slug in job for enrichment later
+        for job in company_jobs:
+            job["_company_slug"] = company_slug
         all_jobs.extend(company_jobs)
 
-    # 1️⃣ Log: Jobs entering matcher
+    # 1️⃣ ROLE DOMAIN GATE: Configuration-driven title filtering
+    # Reduces candidate set before matching
+    filtered_jobs = []
+    eliminated_role_domain = 0
+
+    for job in all_jobs:
+        job_title = job.get("title", "")
+        if _passes_role_domain_filter(job_title):
+            filtered_jobs.append(job)
+        else:
+            eliminated_role_domain += 1
+
+    # Log: Jobs after role domain filter
     logger.info(
         "matcher.start",
         extra={
             "jobs_received": len(all_jobs),
+            "role_domain_filtered": eliminated_role_domain,
+            "jobs_after_filter": len(filtered_jobs),
+            "active_domain": settings.ACTIVE_ROLE_DOMAIN,
             "user_skills_count": len(user_skills),
             "resume_id": str(resume.id)
         }
     )
 
-    if not all_jobs:
+    if not filtered_jobs:
         logger.info(
-            "Job discovery returned no jobs from Greenhouse",
+            "Job discovery: all jobs filtered by role domain",
             extra={
                 "resume_id": str(resume.id),
-                "user_skills_count": len(user_skills),
-                "companies_checked": len(TARGET_COMPANIES)
+                "jobs_eliminated": eliminated_role_domain,
+                "active_domain": settings.ACTIVE_ROLE_DOMAIN
             }
         )
         return []
 
+    # 2️⃣ INITIAL TITLE-BASED MATCHING (to identify top candidates for enrichment)
     # Match jobs to user skills - track elimination reasons
-    matched_jobs = []
+    initial_candidates = []
     match_scores = []
 
     # Elimination counters
@@ -300,7 +378,7 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     eliminated_no_job_skills = 0
     eliminated_no_skill_match = 0
 
-    for job in all_jobs:
+    for job in filtered_jobs:
         # Extract job details from Greenhouse API response
         job_id = job.get("id")
         job_title = job.get("title", "")
@@ -343,17 +421,15 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             eliminated_no_skill_match += 1
             continue
 
-        # Job passed all filters - calculate score
+        # Job passed all filters - calculate initial title-based score
         match_count = len(matched_skills)
         # Score as percentage of job's required skills that user has
         match_percentage = int((match_count / len(job_skills_lower)) * 100)
         match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
 
-        # Track score for distribution
-        match_scores.append(match_percentage)
-
-        # Only include jobs with at least one skill match
-        matched_jobs.append({
+        # Store candidate for potential enrichment
+        initial_candidates.append({
+            "job": job,  # Keep original job object for enrichment
             "id": str(job_id),
             "title": job_title,
             "company": company_name,
@@ -361,18 +437,104 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             "location": location,
             "match_reason": match_reason,
             "match_percentage": match_percentage,
-            "description": job_content[:200] + "..." if len(job_content) > 200 else job_content,
+            "initial_score": match_percentage,  # Store title-based score
+            "has_content": bool(job_content),
             "source": "greenhouse"
         })
 
-    # 2️⃣ Log: Score distribution
-    if match_scores:
+    # 3️⃣ SELECTIVE ENRICHMENT: Fetch full descriptions for top N candidates
+    # Sort candidates by initial score to identify top matches
+    initial_candidates.sort(key=lambda x: x["initial_score"], reverse=True)
+
+    enriched_count = 0
+    enrichment_failed = 0
+    candidates_to_enrich = initial_candidates[:settings.MAX_JOBS_TO_ENRICH]
+
+    for candidate in candidates_to_enrich:
+        if candidate["has_content"]:
+            continue  # Already has content
+
+        job_obj = candidate["job"]
+        company_slug = job_obj.get("_company_slug")
+        job_id = candidate["id"]
+
+        enriched_job = _enrich_job_with_description(company_slug, job_id, job_obj)
+        if enriched_job:
+            # Re-extract skills from full description
+            full_content = enriched_job.get("content", "")
+            job_skills_full = _extract_skills_from_job(full_content)
+
+            # Also include title skills
+            title_skills = _infer_skills_from_title(candidate["title"])
+            job_skills_full.update(title_skills)
+
+            # Re-calculate match with full content
+            job_skills_lower = set(skill.lower() for skill in job_skills_full)
+            matched_skills = job_skills_lower.intersection(user_skills_set)
+
+            if matched_skills:
+                match_count = len(matched_skills)
+                new_score = int((match_count / len(job_skills_lower)) * 100) if job_skills_lower else 0
+                new_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+
+                # Update candidate with enriched data
+                candidate["match_percentage"] = new_score
+                candidate["match_reason"] = new_reason
+                candidate["has_content"] = True
+                candidate["enriched"] = True
+                enriched_count += 1
+            else:
+                # Lost match after enrichment (initial match was weak)
+                enrichment_failed += 1
+        else:
+            enrichment_failed += 1
+
+    logger.info(
+        "matcher.enrichment",
+        extra={
+            "candidates_total": len(initial_candidates),
+            "candidates_enriched": enriched_count,
+            "enrichment_failed": enrichment_failed,
+            "max_to_enrich": settings.MAX_JOBS_TO_ENRICH
+        }
+    )
+
+    # 4️⃣ SCORING GUARDRAILS: Cap scores for title-only matches
+    matched_jobs = []
+    for candidate in initial_candidates:
+        score = candidate["match_percentage"]
+
+        # Apply score cap if no full content
+        if not candidate.get("has_content", False):
+            score = min(score, settings.TITLE_ONLY_SCORE_CAP)
+            candidate["match_percentage"] = score
+            candidate["title_only_match"] = True
+
+        # Only include if still has match after enrichment/capping
+        if score > 0:
+            # Build final job dict for response
+            matched_jobs.append({
+                "id": candidate["id"],
+                "title": candidate["title"],
+                "company": candidate["company"],
+                "url": candidate["url"],
+                "location": candidate["location"],
+                "match_reason": candidate["match_reason"],
+                "match_percentage": score,
+                "description": candidate["job"].get("content", "")[:200] + "..." if candidate["job"].get("content") else "",
+                "source": candidate["source"]
+            })
+
+    # 2️⃣ Log: Score distribution (after enrichment and guardrails)
+    if matched_jobs:
+        scores = [j["match_percentage"] for j in matched_jobs]
         logger.info(
             "matcher.scores",
             extra={
-                "min": min(match_scores),
-                "max": max(match_scores),
-                "avg": sum(match_scores) / len(match_scores)
+                "min": min(scores),
+                "max": max(scores),
+                "avg": sum(scores) / len(scores),
+                "enriched_count": enriched_count
             }
         )
     else:
@@ -382,6 +544,7 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     logger.info(
         "matcher.filtered",
         extra={
+            "role_domain": eliminated_role_domain,
             "no_content": eliminated_no_content,
             "no_resume_skills": eliminated_no_resume_skills,
             "no_job_skills": eliminated_no_job_skills,
