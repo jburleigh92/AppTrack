@@ -241,11 +241,11 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         location = job.get("location", {}).get("name", "Location not specified")
         absolute_url = job.get("absolute_url", "")
 
-        # Get job content for skill matching
+        # Get job content for skill matching (may be empty from list endpoint)
         job_content = job.get("content", "")
 
-        # Track elimination: no content
-        if not job_content:
+        # Track elimination: no title or content to analyze
+        if not job_title and not job_content:
             eliminated_no_content += 1
             continue
 
@@ -254,13 +254,13 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             eliminated_no_resume_skills += 1
             continue
 
-        # NEW: Extract ALL technical skills from job (not limited to resume)
-        job_skills_extracted = _extract_skills_from_job(job_content)
+        # Extract ALL technical skills from job description (if available)
+        job_skills_extracted = _extract_skills_from_job(job_content) if job_content else set()
 
-        # Fallback: Infer skills from job title if description extraction is sparse
-        if len(job_skills_extracted) < 3:
-            title_skills = _infer_skills_from_title(job_title)
-            job_skills_extracted.update(title_skills)
+        # CRITICAL: Greenhouse list endpoint doesn't include 'content' field
+        # Fall back to title-based skill inference for all jobs
+        title_skills = _infer_skills_from_title(job_title)
+        job_skills_extracted.update(title_skills)
 
         # Track elimination: no job skills found (even with title fallback)
         if not job_skills_extracted:
