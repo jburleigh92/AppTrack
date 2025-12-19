@@ -81,7 +81,15 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         company_jobs = fetch_all_greenhouse_jobs(company_slug)
         all_jobs.extend(company_jobs)
 
-    logger.info(f"Fetched {len(all_jobs)} total jobs from {len(TARGET_COMPANIES)} companies")
+    # 1️⃣ Log: Jobs entering matcher
+    logger.info(
+        "matcher.start",
+        extra={
+            "jobs_received": len(all_jobs),
+            "user_skills_count": len(user_skills),
+            "resume_id": str(resume.id)
+        }
+    )
 
     if not all_jobs:
         logger.info(
@@ -94,8 +102,15 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         )
         return []
 
-    # Match jobs to user skills
+    # Match jobs to user skills - track elimination reasons
     matched_jobs = []
+    match_scores = []
+
+    # Elimination counters
+    eliminated_no_content = 0
+    eliminated_no_resume_skills = 0
+    eliminated_no_job_skills = 0
+    eliminated_no_skill_match = 0
 
     for job in all_jobs:
         # Extract job details from Greenhouse API response
@@ -108,42 +123,86 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         # Get job content for skill matching
         job_content = job.get("content", "")
 
+        # Track elimination: no content
+        if not job_content:
+            eliminated_no_content += 1
+            continue
+
+        # Track elimination: no resume skills
+        if not user_skills:
+            eliminated_no_resume_skills += 1
+            continue
+
         # Calculate skill match
-        if job_content and user_skills:
-            job_skills = _extract_skills_from_text(job_content, user_skills)
+        job_skills = _extract_skills_from_text(job_content, user_skills)
 
-            if job_skills:
-                job_skills_set = set(skill.lower() for skill in job_skills)
-                matched_skills = job_skills_set.intersection(user_skills_set)
+        # Track elimination: no job skills found
+        if not job_skills:
+            eliminated_no_job_skills += 1
+            continue
 
-                if matched_skills:
-                    match_count = len(matched_skills)
-                    match_percentage = int((match_count / len(user_skills_set)) * 100)
-                    match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+        job_skills_set = set(skill.lower() for skill in job_skills)
+        matched_skills = job_skills_set.intersection(user_skills_set)
 
-                    # Only include jobs with at least one skill match
-                    matched_jobs.append({
-                        "id": str(job_id),
-                        "title": job_title,
-                        "company": company_name,
-                        "url": absolute_url,
-                        "location": location,
-                        "match_reason": match_reason,
-                        "match_percentage": match_percentage,
-                        "description": job_content[:200] + "..." if len(job_content) > 200 else job_content,
-                        "source": "greenhouse"
-                    })
+        # Track elimination: no skill match
+        if not matched_skills:
+            eliminated_no_skill_match += 1
+            continue
+
+        # Job passed all filters - calculate score
+        match_count = len(matched_skills)
+        match_percentage = int((match_count / len(user_skills_set)) * 100)
+        match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+
+        # Track score for distribution
+        match_scores.append(match_percentage)
+
+        # Only include jobs with at least one skill match
+        matched_jobs.append({
+            "id": str(job_id),
+            "title": job_title,
+            "company": company_name,
+            "url": absolute_url,
+            "location": location,
+            "match_reason": match_reason,
+            "match_percentage": match_percentage,
+            "description": job_content[:200] + "..." if len(job_content) > 200 else job_content,
+            "source": "greenhouse"
+        })
+
+    # 2️⃣ Log: Score distribution
+    if match_scores:
+        logger.info(
+            "matcher.scores",
+            extra={
+                "min": min(match_scores),
+                "max": max(match_scores),
+                "avg": sum(match_scores) / len(match_scores)
+            }
+        )
+    else:
+        logger.info("matcher.scores", extra={"status": "unavailable"})
+
+    # 3️⃣ Log: Elimination reasons (counts)
+    logger.info(
+        "matcher.filtered",
+        extra={
+            "no_content": eliminated_no_content,
+            "no_resume_skills": eliminated_no_resume_skills,
+            "no_job_skills": eliminated_no_job_skills,
+            "no_skill_match": eliminated_no_skill_match
+        }
+    )
 
     # Sort by match percentage (highest first)
     matched_jobs.sort(key=lambda x: x["match_percentage"], reverse=True)
 
+    # 4️⃣ Log: Final output count
     logger.info(
-        "Job discovery completed",
+        "matcher.result",
         extra={
-            "resume_id": str(resume.id),
-            "user_skills_count": len(user_skills),
-            "total_greenhouse_jobs": len(all_jobs),
-            "matched_jobs_count": len(matched_jobs)
+            "count": len(matched_jobs),
+            "resume_id": str(resume.id)
         }
     )
 
