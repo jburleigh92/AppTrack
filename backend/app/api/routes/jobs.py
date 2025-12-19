@@ -95,7 +95,7 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
                 "user_skills_count": len(user_skills),
                 "total_applications": total_applications,
                 "reason": "no_extracted_postings",
-                "message": message
+                "detail": message
             }
         )
 
