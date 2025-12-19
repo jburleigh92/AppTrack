@@ -206,3 +206,34 @@ def get_resume_data(resume_id: str, db: Session = Depends(get_db)):
         )
 
     return resume_data
+
+
+@router.post("/active/reparse", response_model=ResumeDataResponse)
+def reparse_active_resume(db: Session = Depends(get_db)):
+    """
+    Force re-parsing of the active resume.
+    Useful after parser improvements to update cached data.
+    """
+    from app.db.models.resume import ResumeData
+
+    # Get active resume
+    resume = db.query(Resume).filter(Resume.is_active == True).first()
+
+    if not resume:
+        raise HTTPException(
+            status_code=404,
+            detail="No active resume found"
+        )
+
+    logger.info(f"Re-parsing active resume: {resume.id}")
+
+    try:
+        # Re-parse the resume
+        resume_data = parse_resume_sync(str(resume.id), db)
+        return resume_data
+    except Exception as e:
+        logger.error(f"Failed to re-parse resume: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to re-parse resume: {str(e)}"
+        )

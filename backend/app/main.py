@@ -1,9 +1,7 @@
 """FastAPI application entry point"""
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from app.api.routes import (
     health,
@@ -17,6 +15,7 @@ from app.api.routes import (
     resume,
     advisory,
     jobs,
+    ui,
 )
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -43,7 +42,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Mount static files
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Include UI routes (no prefix - serves at root)
+app.include_router(ui.router, tags=["ui"])
+
+# Include API routers
 app.include_router(health.router, prefix=f"{settings.API_V1_PREFIX}/health", tags=["health"])
 app.include_router(capture.router, prefix=f"{settings.API_V1_PREFIX}/applications", tags=["applications"])
 app.include_router(email_ingest.router, prefix=f"{settings.API_V1_PREFIX}/emails", tags=["emails"])
@@ -56,16 +61,11 @@ app.include_router(internal.router, prefix=f"{settings.API_V1_PREFIX}/internal",
 app.include_router(resume.router, prefix=f"{settings.API_V1_PREFIX}/resume", tags=["resume"])
 app.include_router(jobs.router, prefix=f"{settings.API_V1_PREFIX}/jobs", tags=["jobs"])
 
-@app.get("/")
-async def root():
-    """Serve the web UI"""
-    static_dir = Path(__file__).parent.parent / "static"
-    index_path = static_dir / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    else:
-        return {
-            "message": "Job Application Tracker API",
-            "version": "1.0.0",
-            "docs": "/docs",
-        }
+@app.get(f"{settings.API_V1_PREFIX}/")
+async def api_root():
+    """API root endpoint"""
+    return {
+        "message": "Job Application Tracker API",
+        "version": "1.0.0",
+        "docs": "/docs",
+    }
