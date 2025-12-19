@@ -81,6 +81,218 @@ TECHNICAL_SKILLS = {
     "Communication", "Collaboration", "Code Review"
 }
 
+# Skill tier weights for differentiated scoring
+# Higher weight = more valuable/distinguishing skill
+SKILL_TIERS = {
+    # Tier 1: Core distinguishing skills (weight: 3.0)
+    "tier1": {
+        "Rust", "Go", "Scala", "Elixir", "Kubernetes", "Terraform", "Machine Learning",
+        "Deep Learning", "TensorFlow", "PyTorch", "System Design", "Architecture",
+        "Distributed Systems", "Microservices", "GraphQL", "gRPC"
+    },
+    # Tier 2: Important technical skills (weight: 2.0)
+    "tier2": {
+        "Python", "Java", "TypeScript", "React", "Angular", "Vue", "Django", "Spring",
+        "PostgreSQL", "MongoDB", "Redis", "AWS", "Azure", "GCP", "Docker",
+        "CI/CD", "Kafka", "Elasticsearch", "Node.js", "FastAPI"
+    },
+    # Tier 3: Common skills (weight: 1.0)
+    "tier3": {
+        "JavaScript", "HTML", "CSS", "SQL", "Git", "API", "REST", "Agile",
+        "Scrum", "JIRA", "Linux", "Bash"
+    }
+}
+
+# Role type patterns for intelligent matching
+ROLE_TYPES = {
+    "ic_engineer": [
+        "Software Engineer", "Engineer", "Developer", "Programmer",
+        "SWE", "SDE", "Backend Engineer", "Frontend Engineer", "Full Stack Engineer",
+        "Platform Engineer", "Infrastructure Engineer"
+    ],
+    "manager": [
+        "Engineering Manager", "Manager", "Team Lead", "Tech Lead Manager",
+        "Director", "VP", "Head of", "Chief"
+    ],
+    "staff_plus": [
+        "Staff Engineer", "Staff Software Engineer", "Principal Engineer",
+        "Distinguished Engineer", "Fellow", "Architect"
+    ],
+    "specialist": [
+        "Data Scientist", "Data Engineer", "ML Engineer", "Security Engineer",
+        "DevOps Engineer", "SRE", "QA Engineer", "Test Engineer"
+    ]
+}
+
+# Seniority level patterns
+SENIORITY_LEVELS = {
+    "junior": ["Junior", "Entry", "Associate", "I", "1", "Graduate", "New Grad"],
+    "mid": ["Mid", "II", "2", "Software Engineer"],  # Default
+    "senior": ["Senior", "Sr", "III", "3", "Lead"],
+    "staff_plus": ["Staff", "Principal", "Distinguished", "Fellow", "IV", "V", "4", "5"]
+}
+
+
+def _get_skill_weight(skill: str) -> float:
+    """Get weight for a skill based on tier."""
+    skill_lower = skill.lower()
+    for tier_skill in SKILL_TIERS["tier1"]:
+        if tier_skill.lower() == skill_lower:
+            return 3.0
+    for tier_skill in SKILL_TIERS["tier2"]:
+        if tier_skill.lower() == skill_lower:
+            return 2.0
+    return 1.0  # Tier 3 or unlisted
+
+
+def _detect_role_type(title: str) -> str:
+    """Detect role type from job title."""
+    title_lower = title.lower()
+
+    # Check manager first (most specific)
+    for pattern in ROLE_TYPES["manager"]:
+        if pattern.lower() in title_lower:
+            return "manager"
+
+    # Check staff+ (also specific)
+    for pattern in ROLE_TYPES["staff_plus"]:
+        if pattern.lower() in title_lower:
+            return "staff_plus"
+
+    # Check specialist
+    for pattern in ROLE_TYPES["specialist"]:
+        if pattern.lower() in title_lower:
+            return "specialist"
+
+    # Default to IC engineer
+    for pattern in ROLE_TYPES["ic_engineer"]:
+        if pattern.lower() in title_lower:
+            return "ic_engineer"
+
+    return "unknown"
+
+
+def _detect_seniority(title: str) -> str:
+    """Detect seniority level from job title."""
+    title_lower = title.lower()
+
+    for pattern in SENIORITY_LEVELS["staff_plus"]:
+        if pattern.lower() in title_lower:
+            return "staff_plus"
+
+    for pattern in SENIORITY_LEVELS["senior"]:
+        if pattern.lower() in title_lower:
+            return "senior"
+
+    for pattern in SENIORITY_LEVELS["junior"]:
+        if pattern.lower() in title_lower:
+            return "junior"
+
+    return "mid"  # Default
+
+
+def _detect_user_target_role(resume_data: Any) -> Dict[str, str]:
+    """
+    Infer user's target role type and seniority from resume.
+
+    Uses most recent job title and experience level.
+    """
+    # Try to get most recent title from experience
+    target_role_type = "ic_engineer"  # Default
+    target_seniority = "mid"  # Default
+
+    if hasattr(resume_data, 'experience') and resume_data.experience:
+        # Get first/most recent experience entry
+        exp = resume_data.experience[0] if isinstance(resume_data.experience, list) else resume_data.experience
+        if isinstance(exp, dict) and 'title' in exp:
+            recent_title = exp['title']
+            target_role_type = _detect_role_type(recent_title)
+            target_seniority = _detect_seniority(recent_title)
+
+    return {
+        "role_type": target_role_type,
+        "seniority": target_seniority
+    }
+
+
+def _calculate_weighted_skill_score(matched_skills: Set[str], job_skills: Set[str]) -> float:
+    """
+    Calculate weighted skill match score.
+
+    Returns score from 0-100 based on weighted skill overlap.
+    """
+    if not job_skills or not matched_skills:
+        return 0.0
+
+    # Calculate weighted intersection
+    matched_weight = sum(_get_skill_weight(skill) for skill in matched_skills)
+    total_job_weight = sum(_get_skill_weight(skill) for skill in job_skills)
+
+    if total_job_weight == 0:
+        return 0.0
+
+    base_score = (matched_weight / total_job_weight) * 100
+    return min(base_score, 100.0)
+
+
+def _calculate_composite_score(
+    base_skill_score: float,
+    user_target: Dict[str, str],
+    job_role_type: str,
+    job_seniority: str,
+    location: str,
+    company: str
+) -> Dict[str, Any]:
+    """
+    Calculate composite match score with multiple factors.
+
+    Returns dict with total score and breakdown.
+    """
+    score_components = {"base_skill_match": base_skill_score}
+    total_score = base_skill_score
+
+    # Role type alignment bonus (+15% if perfect match, -20% if mismatch)
+    if user_target["role_type"] == job_role_type:
+        role_bonus = base_skill_score * 0.15
+        score_components["role_alignment_bonus"] = role_bonus
+        total_score += role_bonus
+    elif job_role_type == "manager" and user_target["role_type"] == "ic_engineer":
+        # Penalize manager roles for IC candidates
+        role_penalty = base_skill_score * 0.30
+        score_components["role_misalignment_penalty"] = -role_penalty
+        total_score -= role_penalty
+
+    # Seniority alignment bonus (+10% if match, -15% if too far off)
+    seniority_order = {"junior": 0, "mid": 1, "senior": 2, "staff_plus": 3}
+    user_level = seniority_order.get(user_target["seniority"], 1)
+    job_level = seniority_order.get(job_seniority, 1)
+    level_diff = abs(user_level - job_level)
+
+    if level_diff == 0:
+        seniority_bonus = base_skill_score * 0.10
+        score_components["seniority_match_bonus"] = seniority_bonus
+        total_score += seniority_bonus
+    elif level_diff > 1:
+        seniority_penalty = base_skill_score * 0.15
+        score_components["seniority_gap_penalty"] = -seniority_penalty
+        total_score -= seniority_penalty
+
+    # Location fit bonus (+5% for USA/Remote)
+    location_lower = location.lower()
+    if "remote" in location_lower and ("usa" in location_lower or "united states" in location_lower):
+        location_bonus = base_skill_score * 0.05
+        score_components["premium_location_bonus"] = location_bonus
+        total_score += location_bonus
+
+    # Cap at 100
+    total_score = min(total_score, 100.0)
+    total_score = max(total_score, 0.0)
+
+    return {
+        "total_score": round(total_score, 1),
+        "components": score_components
+    }
+
 
 def _extract_skills_from_job(text: str) -> Set[str]:
     """
@@ -214,6 +426,61 @@ def _infer_skills_from_title(title: str) -> Set[str]:
     return inferred
 
 
+def _generate_match_explanation(
+    matched_skills: Set[str],
+    job_title: str,
+    job_role_type: str,
+    job_seniority: str,
+    user_target: Dict[str, str],
+    score_components: Dict[str, float]
+) -> str:
+    """
+    Generate human-readable match explanation.
+
+    Focus on WHY this job is a good match, not just WHAT matched.
+    """
+    explanation_parts = []
+
+    # Prioritize tier 1 skills (most distinctive)
+    tier1_matches = [s for s in matched_skills if _get_skill_weight(s) == 3.0]
+    tier2_matches = [s for s in matched_skills if _get_skill_weight(s) == 2.0]
+    other_matches = [s for s in matched_skills if _get_skill_weight(s) == 1.0]
+
+    # Start with standout skills
+    if tier1_matches:
+        standout = sorted(tier1_matches)[:3]  # Top 3
+        explanation_parts.append(f"Strong match on {', '.join(standout)}")
+    elif tier2_matches:
+        core = sorted(tier2_matches)[:4]  # Top 4
+        explanation_parts.append(f"Core skills: {', '.join(core)}")
+    else:
+        # Fallback to other matches
+        basics = sorted(other_matches)[:3]
+        if basics:
+            explanation_parts.append(f"{', '.join(basics)}")
+
+    # Add role fit context
+    if "role_alignment_bonus" in score_components:
+        role_descriptions = {
+            "ic_engineer": "IC engineer role",
+            "staff_plus": "senior IC role",
+            "specialist": "specialist role",
+            "manager": "engineering leadership"
+        }
+        role_desc = role_descriptions.get(job_role_type, "role type")
+        explanation_parts.append(f"matches your {role_desc} background")
+
+    # Add seniority fit
+    if "seniority_match_bonus" in score_components:
+        explanation_parts.append(f"aligns with {job_seniority}-level experience")
+
+    # Note if misaligned
+    if "role_misalignment_penalty" in score_components:
+        explanation_parts.append("(management focus may not align)")
+
+    return "; ".join(explanation_parts) if explanation_parts else "Skill overlap"
+
+
 def _passes_role_domain_filter(job_title: str) -> bool:
     """
     Configuration-driven role domain filter.
@@ -322,6 +589,17 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     user_skills = resume_data.skills if resume_data.skills else []
     user_skills_set = set(skill.lower() for skill in user_skills) if user_skills else set()
 
+    # Detect user's target role type and seniority
+    user_target = _detect_user_target_role(resume_data)
+    logger.info(
+        "matcher.user_profile",
+        extra={
+            "target_role_type": user_target["role_type"],
+            "target_seniority": user_target["seniority"],
+            "skills_count": len(user_skills)
+        }
+    )
+
     # Fetch jobs from all target companies
     all_jobs = []
     for company_slug in TARGET_COMPANIES:
@@ -421,11 +699,41 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             eliminated_no_skill_match += 1
             continue
 
-        # Job passed all filters - calculate initial title-based score
-        match_count = len(matched_skills)
-        # Score as percentage of job's required skills that user has
-        match_percentage = int((match_count / len(job_skills_lower)) * 100)
-        match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+        # Job passed all filters - calculate weighted skill score
+        # Convert matched_skills back to original case for weight lookup
+        matched_skills_cased = set()
+        for skill_lower in matched_skills:
+            for skill in job_skills_extracted:
+                if skill.lower() == skill_lower:
+                    matched_skills_cased.add(skill)
+                    break
+
+        # Calculate weighted skill match
+        base_skill_score = _calculate_weighted_skill_score(matched_skills_cased, job_skills_extracted)
+
+        # Detect job role type and seniority
+        job_role_type = _detect_role_type(job_title)
+        job_seniority = _detect_seniority(job_title)
+
+        # Calculate composite score with role/seniority bonuses
+        composite_result = _calculate_composite_score(
+            base_skill_score,
+            user_target,
+            job_role_type,
+            job_seniority,
+            location,
+            company_name
+        )
+
+        # Generate human-readable explanation
+        match_reason = _generate_match_explanation(
+            matched_skills_cased,
+            job_title,
+            job_role_type,
+            job_seniority,
+            user_target,
+            composite_result["components"]
+        )
 
         # Store candidate for potential enrichment
         initial_candidates.append({
@@ -436,8 +744,12 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             "url": absolute_url,
             "location": location,
             "match_reason": match_reason,
-            "match_percentage": match_percentage,
-            "initial_score": match_percentage,  # Store title-based score
+            "match_percentage": composite_result["total_score"],
+            "initial_score": composite_result["total_score"],
+            "base_skill_score": base_skill_score,
+            "role_type": job_role_type,
+            "seniority": job_seniority,
+            "matched_skills": matched_skills_cased,
             "has_content": bool(job_content),
             "source": "greenhouse"
         })
@@ -473,13 +785,42 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             matched_skills = job_skills_lower.intersection(user_skills_set)
 
             if matched_skills:
-                match_count = len(matched_skills)
-                new_score = int((match_count / len(job_skills_lower)) * 100) if job_skills_lower else 0
-                new_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+                # Convert to cased skills for weighting
+                matched_skills_cased = set()
+                for skill_lower in matched_skills:
+                    for skill in job_skills_full:
+                        if skill.lower() == skill_lower:
+                            matched_skills_cased.add(skill)
+                            break
+
+                # Re-calculate with weighted scoring
+                base_skill_score = _calculate_weighted_skill_score(matched_skills_cased, job_skills_full)
+
+                # Re-calculate composite score (role/seniority already stored)
+                composite_result = _calculate_composite_score(
+                    base_skill_score,
+                    user_target,
+                    candidate["role_type"],
+                    candidate["seniority"],
+                    candidate["location"],
+                    candidate["company"]
+                )
+
+                # Re-generate explanation with enriched context
+                new_reason = _generate_match_explanation(
+                    matched_skills_cased,
+                    candidate["title"],
+                    candidate["role_type"],
+                    candidate["seniority"],
+                    user_target,
+                    composite_result["components"]
+                )
 
                 # Update candidate with enriched data
-                candidate["match_percentage"] = new_score
+                candidate["match_percentage"] = composite_result["total_score"]
                 candidate["match_reason"] = new_reason
+                candidate["base_skill_score"] = base_skill_score
+                candidate["matched_skills"] = matched_skills_cased
                 candidate["has_content"] = True
                 candidate["enriched"] = True
                 enriched_count += 1
