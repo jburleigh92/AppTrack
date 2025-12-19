@@ -122,9 +122,23 @@ def _infer_skills_from_title(title: str) -> Set[str]:
     title_lower = title.lower()
     inferred = set()
 
-    # PASS 1: Direct skill mentions in title (e.g., "Python Engineer", "React Developer")
+    # Soft skills to exclude from direct title matching (too generic, cause false positives)
+    SOFT_SKILLS = {
+        "Leadership", "Mentoring", "Problem Solving", "Communication",
+        "Collaboration", "Code Review"
+    }
+
+    # PASS 1: Direct skill mentions in title with word boundaries
+    # (e.g., "Python Engineer", "React Developer")
+    # Excludes soft skills to prevent matching non-technical roles
+    import re
     for skill in TECHNICAL_SKILLS:
-        if skill.lower() in title_lower:
+        if skill in SOFT_SKILLS:
+            continue  # Skip soft skills in title matching
+
+        # Use word boundary to prevent false positives (e.g., "digital" matching "Git")
+        pattern = r'\b' + re.escape(skill.lower()) + r'\b'
+        if re.search(pattern, title_lower):
             inferred.add(skill)
 
     # PASS 2: Role-based inference with expanded, comprehensive skill sets
