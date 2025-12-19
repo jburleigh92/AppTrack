@@ -32,6 +32,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         loading.classList.add('hide');
 
         if (!jobs || jobs.length === 0) {
+            // Fetch application count for diagnostic info
+            try {
+                const applications = await apiFetch('/applications');
+                const totalApps = applications ? applications.length : 0;
+
+                // Update empty state with diagnostic info
+                emptyState.innerHTML = `
+                    <h3>No Job Recommendations</h3>
+                    <p>Checked ${totalApps} captured application${totalApps !== 1 ? 's' : ''}, found 0 matching your resume.</p>
+                    ${totalApps === 0 ?
+                        '<p>Start by capturing job applications to see personalized recommendations.</p>' :
+                        '<p>Try uploading a different resume or capturing more varied positions.</p>'
+                    }
+                `;
+            } catch (error) {
+                console.error('Failed to fetch application count:', error);
+            }
+
             emptyState.classList.remove('hide');
             return;
         }
