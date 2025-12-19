@@ -6,6 +6,7 @@ from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume, ResumeData
 from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs, fetch_greenhouse_job
 from app.core.config import settings
+from app.services.intent_analyzer import IntentAnalyzer, IntentProfile, score_intent_alignment
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -241,39 +242,77 @@ def _calculate_composite_score(
     job_role_type: str,
     job_seniority: str,
     location: str,
-    company: str
+    company: str,
+    intent_profile: Optional[IntentProfile] = None,
+    job_title: str = "",
+    job_description: str = ""
 ) -> Dict[str, Any]:
     """
-    Calculate composite match score with multiple factors.
+    Calculate composite match score with multiple factors including career intent.
 
     Returns dict with total score and breakdown.
     """
     score_components = {"base_skill_match": base_skill_score}
     total_score = base_skill_score
 
-    # Role type alignment bonus (+15% if perfect match, -20% if mismatch)
+    # Intent alignment scoring (MOST IMPORTANT - 30% weight)
+    # This is the new layer that understands what role the resume is targeting
+    intent_score = 0.0
+    intent_multiplier = 1.0
+
+    if intent_profile and (job_title or job_description):
+        intent_alignment = score_intent_alignment(
+            job_title=job_title,
+            job_description=job_description,
+            intent_profile=intent_profile
+        )
+
+        intent_score = intent_alignment["alignment_score"]
+        score_components["intent_alignment_score"] = intent_score
+        score_components["intent_archetype_match"] = intent_alignment["archetype_score"]
+        score_components["intent_orientation_match"] = intent_alignment["orientation_score"]
+
+        # Intent score affects the final score in two ways:
+        # 1. Direct contribution (up to +30 points for perfect intent match)
+        intent_contribution = (intent_score / 100) * 30
+        total_score += intent_contribution
+
+        # 2. Multiplier effect on skill matching (0.7x to 1.3x)
+        # Strong intent match boosts skill score, weak match diminishes it
+        intent_multiplier = 0.7 + (intent_score / 100) * 0.6
+        adjusted_skill_score = base_skill_score * intent_multiplier
+        total_score = total_score - base_skill_score + adjusted_skill_score
+        score_components["intent_adjusted_skills"] = adjusted_skill_score - base_skill_score
+
+        # Apply deprioritization penalties
+        if intent_alignment["deprioritization_penalty"] > 0:
+            penalty = intent_alignment["deprioritization_penalty"]
+            score_components["intent_deprioritization_penalty"] = -penalty
+            total_score -= penalty
+
+    # Role type alignment bonus (reduced weight since intent covers this better)
     if user_target["role_type"] == job_role_type:
-        role_bonus = base_skill_score * 0.15
+        role_bonus = base_skill_score * 0.10  # Reduced from 0.15
         score_components["role_alignment_bonus"] = role_bonus
         total_score += role_bonus
     elif job_role_type == "manager" and user_target["role_type"] == "ic_engineer":
         # Penalize manager roles for IC candidates
-        role_penalty = base_skill_score * 0.30
+        role_penalty = base_skill_score * 0.20  # Reduced from 0.30
         score_components["role_misalignment_penalty"] = -role_penalty
         total_score -= role_penalty
 
-    # Seniority alignment bonus (+10% if match, -15% if too far off)
+    # Seniority alignment bonus (+8% if match, -12% if too far off)
     seniority_order = {"junior": 0, "mid": 1, "senior": 2, "staff_plus": 3}
     user_level = seniority_order.get(user_target["seniority"], 1)
     job_level = seniority_order.get(job_seniority, 1)
     level_diff = abs(user_level - job_level)
 
     if level_diff == 0:
-        seniority_bonus = base_skill_score * 0.10
+        seniority_bonus = base_skill_score * 0.08  # Reduced from 0.10
         score_components["seniority_match_bonus"] = seniority_bonus
         total_score += seniority_bonus
     elif level_diff > 1:
-        seniority_penalty = base_skill_score * 0.15
+        seniority_penalty = base_skill_score * 0.12  # Reduced from 0.15
         score_components["seniority_gap_penalty"] = -seniority_penalty
         total_score -= seniority_penalty
 
@@ -290,7 +329,8 @@ def _calculate_composite_score(
 
     return {
         "total_score": round(total_score, 1),
-        "components": score_components
+        "components": score_components,
+        "intent_score": round(intent_score, 1) if intent_profile else 0.0
     }
 
 
@@ -432,51 +472,73 @@ def _generate_match_explanation(
     job_role_type: str,
     job_seniority: str,
     user_target: Dict[str, str],
-    score_components: Dict[str, float]
+    score_components: Dict[str, float],
+    intent_profile: Optional[IntentProfile] = None
 ) -> str:
     """
     Generate human-readable match explanation.
 
-    Focus on WHY this job is a good match, not just WHAT matched.
+    Focus on WHY this job is a good match for the candidate's career intent,
+    not just WHAT skills matched.
     """
     explanation_parts = []
 
+    # INTENT FIT (most important - lead with this if strong)
+    if intent_profile and "intent_alignment_score" in score_components:
+        intent_score = score_components["intent_alignment_score"]
+
+        if intent_score >= 70:
+            # Strong intent match - make this the headline
+            archetype_name = intent_profile.primary_archetype.replace("_", " ").title()
+            explanation_parts.append(f"Strong fit for {archetype_name} role")
+        elif intent_score >= 50:
+            # Moderate match
+            archetype_name = intent_profile.primary_archetype.replace("_", " ").title()
+            explanation_parts.append(f"Aligns with {archetype_name} background")
+        # Weak intent match (<50) - don't highlight it, let skills speak
+
+    # SKILLS (supporting evidence)
     # Prioritize tier 1 skills (most distinctive)
     tier1_matches = [s for s in matched_skills if _get_skill_weight(s) == 3.0]
     tier2_matches = [s for s in matched_skills if _get_skill_weight(s) == 2.0]
     other_matches = [s for s in matched_skills if _get_skill_weight(s) == 1.0]
 
-    # Start with standout skills
+    # Add skill evidence
     if tier1_matches:
         standout = sorted(tier1_matches)[:3]  # Top 3
-        explanation_parts.append(f"Strong match on {', '.join(standout)}")
+        explanation_parts.append(f"leveraging {', '.join(standout)}")
     elif tier2_matches:
         core = sorted(tier2_matches)[:4]  # Top 4
-        explanation_parts.append(f"Core skills: {', '.join(core)}")
+        explanation_parts.append(f"uses {', '.join(core)}")
     else:
         # Fallback to other matches
         basics = sorted(other_matches)[:3]
         if basics:
-            explanation_parts.append(f"{', '.join(basics)}")
+            explanation_parts.append(f"involves {', '.join(basics)}")
 
-    # Add role fit context
-    if "role_alignment_bonus" in score_components:
-        role_descriptions = {
-            "ic_engineer": "IC engineer role",
-            "staff_plus": "senior IC role",
-            "specialist": "specialist role",
-            "manager": "engineering leadership"
-        }
-        role_desc = role_descriptions.get(job_role_type, "role type")
-        explanation_parts.append(f"matches your {role_desc} background")
+    # WORK ORIENTATION SIGNALS (add nuance if intent available)
+    if intent_profile and "intent_orientation_match" in score_components:
+        orientation = intent_profile.work_orientation
 
-    # Add seniority fit
+        # Highlight orientation if it's a defining characteristic (>0.7)
+        if orientation.get("customer_facing", 0) > 0.7:
+            if "customer" in job_title.lower() or "solutions" in job_title.lower():
+                explanation_parts.append("customer-facing focus")
+
+        if orientation.get("integration_heavy", 0) > 0.7:
+            if "integration" in job_title.lower() or "platform" in job_title.lower():
+                explanation_parts.append("integration-focused work")
+
+    # SENIORITY FIT
     if "seniority_match_bonus" in score_components:
-        explanation_parts.append(f"aligns with {job_seniority}-level experience")
+        explanation_parts.append(f"{job_seniority}-level")
 
-    # Note if misaligned
-    if "role_misalignment_penalty" in score_components:
-        explanation_parts.append("(management focus may not align)")
+    # WARNINGS (deprioritized roles or misalignments)
+    if "intent_deprioritization_penalty" in score_components:
+        # Subtle warning without being too negative
+        explanation_parts.append("(different focus area)")
+    elif "role_misalignment_penalty" in score_components:
+        explanation_parts.append("(management-focused)")
 
     return "; ".join(explanation_parts) if explanation_parts else "Skill overlap"
 
@@ -591,12 +653,28 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 
     # Detect user's target role type and seniority
     user_target = _detect_user_target_role(resume_data)
+
+    # Analyze resume intent for job matching
+    intent_analyzer = IntentAnalyzer()
+    intent_profile = intent_analyzer.analyze_resume_intent(
+        resume_data={
+            "skills": user_skills,
+            "experience": resume_data.experience if resume_data.experience else [],
+            "education": resume_data.education if resume_data.education else [],
+            "summary": resume_data.summary if hasattr(resume_data, 'summary') else ""
+        },
+        db=db,
+        resume_id=str(resume.id)
+    )
+
     logger.info(
         "matcher.user_profile",
         extra={
             "target_role_type": user_target["role_type"],
             "target_seniority": user_target["seniority"],
-            "skills_count": len(user_skills)
+            "skills_count": len(user_skills),
+            "intent_archetype": intent_profile.primary_archetype,
+            "intent_confidence": intent_profile.archetype_confidence
         }
     )
 
@@ -715,14 +793,17 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         job_role_type = _detect_role_type(job_title)
         job_seniority = _detect_seniority(job_title)
 
-        # Calculate composite score with role/seniority bonuses
+        # Calculate composite score with role/seniority bonuses and intent alignment
         composite_result = _calculate_composite_score(
             base_skill_score,
             user_target,
             job_role_type,
             job_seniority,
             location,
-            company_name
+            company_name,
+            intent_profile=intent_profile,
+            job_title=job_title,
+            job_description=job_content
         )
 
         # Generate human-readable explanation
@@ -732,7 +813,8 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             job_role_type,
             job_seniority,
             user_target,
-            composite_result["components"]
+            composite_result["components"],
+            intent_profile=intent_profile
         )
 
         # Store candidate for potential enrichment
@@ -796,14 +878,17 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
                 # Re-calculate with weighted scoring
                 base_skill_score = _calculate_weighted_skill_score(matched_skills_cased, job_skills_full)
 
-                # Re-calculate composite score (role/seniority already stored)
+                # Re-calculate composite score with enriched content
                 composite_result = _calculate_composite_score(
                     base_skill_score,
                     user_target,
                     candidate["role_type"],
                     candidate["seniority"],
                     candidate["location"],
-                    candidate["company"]
+                    candidate["company"],
+                    intent_profile=intent_profile,
+                    job_title=candidate["title"],
+                    job_description=full_content
                 )
 
                 # Re-generate explanation with enriched context
@@ -813,7 +898,8 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
                     candidate["role_type"],
                     candidate["seniority"],
                     user_target,
-                    composite_result["components"]
+                    composite_result["components"],
+                    intent_profile=intent_profile
                 )
 
                 # Update candidate with enriched data

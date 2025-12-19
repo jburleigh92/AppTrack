@@ -91,17 +91,23 @@ class AnalysisService:
         
         if not resume_data:
             raise MissingDataError("Resume data not found")
-        
+
+        # Get intent profile for context-aware analysis
+        intent_profile_data = None
+        if hasattr(resume_data, 'intent_profile') and resume_data.intent_profile:
+            intent_profile_data = resume_data.intent_profile
+
         # Step 4: Call LLM
         logger.info(
             f"Running analysis for application {application_id}",
             extra={
                 "application_id": str(application_id),
                 "job_posting_id": str(job_posting.id),
-                "resume_id": str(active_resume.id)
+                "resume_id": str(active_resume.id),
+                "has_intent_profile": intent_profile_data is not None
             }
         )
-        
+
         try:
             result = await self.llm_client.analyze_job_vs_resume(
                 job_description=job_posting.description,
@@ -109,7 +115,8 @@ class AnalysisService:
                 resume_summary=resume_data.summary,
                 resume_skills=resume_data.skills if isinstance(resume_data.skills, list) else [],
                 resume_experience=resume_data.experience if isinstance(resume_data.experience, list) else [],
-                resume_education=resume_data.education if isinstance(resume_data.education, list) else []
+                resume_education=resume_data.education if isinstance(resume_data.education, list) else [],
+                intent_profile=intent_profile_data
             )
         except Exception as e:
             logger.error(f"LLM call failed for application {application_id}", exc_info=True)
