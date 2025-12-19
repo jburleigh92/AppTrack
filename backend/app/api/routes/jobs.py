@@ -193,10 +193,9 @@ def _infer_skills_from_title(title: str) -> Set[str]:
         if keyword in title_lower:
             inferred.update(skills)
 
-    # PASS 3: If still no skills, use generic tech baseline
-    if not inferred:
-        inferred = {"Git", "Problem Solving", "Communication", "Agile"}
-
+    # PASS 3: Return empty if no technical role detected
+    # This filters out non-technical roles (Communications, HR, Sales, etc.)
+    # Better to have no match than false positive matches
     return inferred
 
 
@@ -376,8 +375,32 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
         }
     )
 
-    # Sort by match percentage (highest first)
-    matched_jobs.sort(key=lambda x: x["match_percentage"], reverse=True)
+    # Sort by location priority, then match percentage
+    def location_priority(job):
+        """
+        Prioritize jobs by location: USA/Remote first, then international.
+        Returns tuple: (location_score, match_percentage) for multi-level sorting.
+        """
+        location = job.get("location", "").lower()
+
+        # Priority 1: USA + Remote
+        if "remote" in location and ("usa" in location or "united states" in location or "us" in location):
+            return (3, job["match_percentage"])
+
+        # Priority 2: USA locations
+        if "usa" in location or "united states" in location or "us" in location or any(
+            state in location for state in ["california", "new york", "texas", "washington", "massachusetts"]
+        ):
+            return (2, job["match_percentage"])
+
+        # Priority 3: Remote (any location)
+        if "remote" in location:
+            return (1, job["match_percentage"])
+
+        # Priority 4: International
+        return (0, job["match_percentage"])
+
+    matched_jobs.sort(key=location_priority, reverse=True)
 
     # 4️⃣ Log: Final output count
     logger.info(
