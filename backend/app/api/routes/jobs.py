@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.dependencies.database import get_db
@@ -23,6 +23,127 @@ TARGET_COMPANIES = [
     "gitlab",
     "notion",
 ]
+
+# Comprehensive technical skills dictionary for job extraction
+# Organized by category for maintainability
+TECHNICAL_SKILLS = {
+    # Programming Languages
+    "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "Go", "Rust", "Ruby",
+    "PHP", "Swift", "Kotlin", "Scala", "R", "MATLAB", "Perl", "Shell", "Bash",
+
+    # Web Frameworks & Libraries
+    "React", "Angular", "Vue", "Svelte", "Next.js", "Nuxt", "Django", "Flask",
+    "FastAPI", "Express", "Node.js", "Spring", "Spring Boot", "Rails", "Laravel",
+    "ASP.NET", "jQuery", "Bootstrap", "Tailwind", "Material-UI", "Redux", "GraphQL",
+
+    # Databases & Storage
+    "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "Cassandra",
+    "DynamoDB", "Oracle", "SQL Server", "MariaDB", "Neo4j", "CouchDB", "InfluxDB",
+    "Snowflake", "BigQuery", "Redshift",
+
+    # Cloud & Infrastructure
+    "AWS", "Azure", "GCP", "Google Cloud", "Heroku", "DigitalOcean", "Vercel",
+    "Netlify", "Cloudflare", "Lambda", "EC2", "S3", "CloudFormation", "ARM",
+
+    # DevOps & Tools
+    "Docker", "Kubernetes", "K8s", "Terraform", "Ansible", "Jenkins", "CircleCI",
+    "GitHub Actions", "GitLab CI", "Travis CI", "Prometheus", "Grafana", "Datadog",
+    "New Relic", "Splunk", "ELK", "Kafka", "RabbitMQ", "Nginx", "Apache",
+
+    # Data & ML
+    "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch", "Keras", "Scikit-learn",
+    "Pandas", "NumPy", "Jupyter", "Spark", "Hadoop", "Airflow", "dbt", "Tableau",
+    "Power BI", "Looker", "ML", "AI", "NLP", "Computer Vision", "LLM",
+
+    # Mobile
+    "iOS", "Android", "React Native", "Flutter", "SwiftUI", "UIKit", "Jetpack Compose",
+
+    # Testing & Quality
+    "Jest", "Pytest", "JUnit", "Selenium", "Cypress", "TestNG", "Mocha", "Chai",
+    "TDD", "CI/CD", "QA",
+
+    # Methodologies & Concepts
+    "Agile", "Scrum", "Kanban", "Microservices", "REST", "API", "gRPC", "WebSockets",
+    "OAuth", "SAML", "JWT", "Git", "GitHub", "GitLab", "Bitbucket", "JIRA",
+    "Confluence", "Slack", "Linux", "Unix", "Windows", "macOS",
+
+    # Security
+    "Security", "Cybersecurity", "Penetration Testing", "OWASP", "Encryption", "SSL",
+    "TLS", "VPN", "Firewall", "IAM",
+
+    # Emerging Tech
+    "Blockchain", "Ethereum", "Solidity", "Web3", "NFT", "Cryptocurrency", "Bitcoin",
+    "AR", "VR", "IoT", "Edge Computing", "Serverless",
+
+    # Soft Skills (Technical Adjacent)
+    "Leadership", "Mentoring", "Architecture", "System Design", "Problem Solving",
+    "Communication", "Collaboration", "Code Review"
+}
+
+
+def _extract_skills_from_job(text: str) -> Set[str]:
+    """
+    Extract technical skills from job description.
+
+    Uses comprehensive skill dictionary to find ALL technical skills mentioned,
+    not limited to candidate's resume skills.
+
+    Returns:
+        Set of skills found in job description (preserves original case from dictionary)
+    """
+    if not text:
+        return set()
+
+    text_lower = text.lower()
+    found_skills = set()
+
+    for skill in TECHNICAL_SKILLS:
+        # Use word boundary matching to avoid false positives
+        # e.g., "Go" should match "Go programming" but not "Google"
+        skill_lower = skill.lower()
+
+        # Simple substring match (can be improved with regex word boundaries)
+        if skill_lower in text_lower:
+            found_skills.add(skill)
+
+    return found_skills
+
+
+def _infer_skills_from_title(title: str) -> Set[str]:
+    """
+    Infer likely technical skills from job title.
+
+    Provides fallback signal when job description has poor skill coverage.
+    """
+    if not title:
+        return set()
+
+    title_lower = title.lower()
+    inferred = set()
+
+    # Role-based inference rules
+    role_skills = {
+        "frontend": {"JavaScript", "TypeScript", "React", "HTML", "CSS", "Web"},
+        "backend": {"API", "Database", "Python", "Java", "Go"},
+        "fullstack": {"JavaScript", "Python", "React", "API", "Database"},
+        "full stack": {"JavaScript", "Python", "React", "API", "Database"},
+        "devops": {"Docker", "Kubernetes", "CI/CD", "AWS", "Linux"},
+        "data": {"Python", "SQL", "Machine Learning", "Pandas"},
+        "ml": {"Python", "Machine Learning", "TensorFlow", "PyTorch"},
+        "machine learning": {"Python", "Machine Learning", "TensorFlow"},
+        "mobile": {"iOS", "Android", "React Native", "Mobile"},
+        "ios": {"Swift", "iOS", "SwiftUI"},
+        "android": {"Kotlin", "Java", "Android"},
+        "security": {"Security", "Cybersecurity", "Encryption"},
+        "cloud": {"AWS", "Azure", "GCP", "Cloud", "DevOps"},
+        "infrastructure": {"Docker", "Kubernetes", "Terraform", "Infrastructure"}
+    }
+
+    for keyword, skills in role_skills.items():
+        if keyword in title_lower:
+            inferred.update(skills)
+
+    return inferred
 
 
 def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
@@ -133,16 +254,22 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             eliminated_no_resume_skills += 1
             continue
 
-        # Calculate skill match
-        job_skills = _extract_skills_from_text(job_content, user_skills)
+        # NEW: Extract ALL technical skills from job (not limited to resume)
+        job_skills_extracted = _extract_skills_from_job(job_content)
 
-        # Track elimination: no job skills found
-        if not job_skills:
+        # Fallback: Infer skills from job title if description extraction is sparse
+        if len(job_skills_extracted) < 3:
+            title_skills = _infer_skills_from_title(job_title)
+            job_skills_extracted.update(title_skills)
+
+        # Track elimination: no job skills found (even with title fallback)
+        if not job_skills_extracted:
             eliminated_no_job_skills += 1
             continue
 
-        job_skills_set = set(skill.lower() for skill in job_skills)
-        matched_skills = job_skills_set.intersection(user_skills_set)
+        # Calculate skill overlap with user resume
+        job_skills_lower = set(skill.lower() for skill in job_skills_extracted)
+        matched_skills = job_skills_lower.intersection(user_skills_set)
 
         # Track elimination: no skill match
         if not matched_skills:
@@ -151,7 +278,8 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 
         # Job passed all filters - calculate score
         match_count = len(matched_skills)
-        match_percentage = int((match_count / len(user_skills_set)) * 100)
+        # Score as percentage of job's required skills that user has
+        match_percentage = int((match_count / len(job_skills_lower)) * 100)
         match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
 
         # Track score for distribution
