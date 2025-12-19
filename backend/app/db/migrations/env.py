@@ -7,6 +7,16 @@ import sys
 
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), "../../../")))
 
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(os.path.dirname(__file__), "../../../.env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    # dotenv not installed, skip loading .env file
+    pass
+
 from app.db.base import Base
 from app.db.models import *
 
