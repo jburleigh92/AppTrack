@@ -63,19 +63,13 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     user_skills = resume_data.skills if resume_data.skills else []
     user_skills_set = set(skill.lower() for skill in user_skills) if user_skills else set()
 
-    # Query all applications with extracted job postings
-    # Join with JobPosting where extraction is complete
-    # Left join with AnalysisResult to get match scores if available
+    # Query all applications - use left join for optional posting data
+    # This allows showing applications even if scraping is incomplete or failed
     applications_with_postings = (
         db.query(Application, JobPosting, AnalysisResult)
-        .join(JobPosting, Application.posting_id == JobPosting.id)
+        .outerjoin(JobPosting, Application.posting_id == JobPosting.id)
         .outerjoin(AnalysisResult, Application.analysis_id == AnalysisResult.id)
-        .filter(
-            and_(
-                Application.is_deleted == False,
-                JobPosting.extraction_complete == True
-            )
-        )
+        .filter(Application.is_deleted == False)
         .all()
     )
 
@@ -114,39 +108,47 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             match_reason = ", ".join(matched_skills_list[:5]) if matched_skills_list else "LLM analysis"
         else:
             # Fallback: Calculate basic skill match from requirements text
-            job_skills = _extract_skills_from_text(
-                posting.requirements or posting.description or "",
-                user_skills
-            )
+            # Use posting data if available, otherwise no skill matching
+            if posting and (posting.requirements or posting.description):
+                job_skills = _extract_skills_from_text(
+                    posting.requirements or posting.description or "",
+                    user_skills
+                )
 
-            if not job_skills or not user_skills:
-                # No skills to match - include with 0% match but don't exclude
-                match_percentage = 0
-                match_reason = "No skills detected"
-            else:
-                job_skills_set = set(skill.lower() for skill in job_skills)
-                matched_skills = job_skills_set.intersection(user_skills_set)
-
-                if matched_skills:
-                    match_percentage = int((len(matched_skills) / len(job_skills_set)) * 100)
-                    # Capitalize matched skills for display
-                    match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
-                else:
+                if not job_skills or not user_skills:
                     match_percentage = 0
-                    match_reason = "No matching skills"
+                    match_reason = "No skills detected"
+                else:
+                    job_skills_set = set(skill.lower() for skill in job_skills)
+                    matched_skills = job_skills_set.intersection(user_skills_set)
 
-        # Include all jobs (even 0% match) so users can see what they captured
+                    if matched_skills:
+                        match_percentage = int((len(matched_skills) / len(job_skills_set)) * 100)
+                        # Capitalize matched skills for display
+                        match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+                    else:
+                        match_percentage = 0
+                        match_reason = "No matching skills"
+            else:
+                # No posting data available yet - show with pending status
+                match_percentage = 0
+                match_reason = "Scraping in progress"
+
+        # Include all jobs (even 0% match and incomplete scraping) so users can see what they captured
         matched_jobs.append({
             "id": str(app.id),
-            "title": posting.job_title or app.job_title,
-            "company": posting.company_name or app.company_name,
+            "title": (posting.job_title if posting else None) or app.job_title or "Job Title Pending",
+            "company": (posting.company_name if posting else None) or app.company_name or "Company Pending",
             "url": app.job_posting_url,
-            "location": posting.location or "Location not specified",
+            "location": (posting.location if posting else None) or "Location not specified",
             "match_reason": match_reason,
             "match_percentage": match_percentage,
-            "description": (posting.description[:200] + "...") if posting.description and len(posting.description) > 200 else (posting.description or "No description available"),
+            "description": (
+                (posting.description[:200] + "...") if posting and posting.description and len(posting.description) > 200
+                else (posting.description if posting and posting.description else "Scraping in progress...")
+            ),
             "has_analysis": analysis is not None,
-            "extraction_complete": posting.extraction_complete,
+            "extraction_complete": posting.extraction_complete if posting else False,
             "application_status": app.status
         })
 
