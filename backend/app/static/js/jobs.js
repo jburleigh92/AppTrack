@@ -32,23 +32,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         loading.classList.add('hide');
 
         if (!jobs || jobs.length === 0) {
-            // Fetch application count for diagnostic info
-            try {
-                const applications = await apiFetch('/applications');
-                const totalApps = applications ? applications.length : 0;
-
-                // Update empty state with diagnostic info
-                emptyState.innerHTML = `
-                    <h3>No Job Recommendations</h3>
-                    <p>Checked ${totalApps} captured application${totalApps !== 1 ? 's' : ''}, found 0 matching your resume.</p>
-                    ${totalApps === 0 ?
-                        '<p>Start by capturing job applications to see personalized recommendations.</p>' :
-                        '<p>Try uploading a different resume or capturing more varied positions.</p>'
-                    }
-                `;
-            } catch (error) {
-                console.error('Failed to fetch application count:', error);
-            }
+            // Update empty state for Greenhouse-based discovery
+            emptyState.innerHTML = `
+                <h3>No Job Recommendations</h3>
+                <p>Checked job boards from 10 tech companies, found 0 matching your skills.</p>
+                <p>This means either:</p>
+                <ul style="text-align: left; max-width: 500px; margin: 1rem auto;">
+                    <li>No open positions match your resume skills</li>
+                    <li>Your resume may need more skills listed</li>
+                    <li>Try uploading a resume with more technical skills</li>
+                </ul>
+                <p style="margin-top: 1rem;"><small>Companies checked: Airbnb, Stripe, Shopify, Coinbase, Dropbox, Instacart, Robinhood, DoorDash, GitLab, Notion</small></p>
+            `;
 
             emptyState.classList.remove('hide');
             return;

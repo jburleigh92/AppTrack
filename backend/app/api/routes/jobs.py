@@ -2,20 +2,32 @@ import logging
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume, ResumeData
-from app.db.models.application import Application
-from app.db.models.job_posting import JobPosting
-from app.db.models.analysis import AnalysisResult
+from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Target companies to fetch jobs from (Greenhouse job boards)
+# These are popular tech companies with public Greenhouse boards
+TARGET_COMPANIES = [
+    "airbnb",
+    "stripe",
+    "shopify",
+    "coinbase",
+    "dropbox",
+    "instacart",
+    "robinhood",
+    "doordash",
+    "gitlab",
+    "notion",
+]
+
 
 def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
     """
-    Extract skills from job requirements text by matching against known skills.
+    Extract skills from job description text by matching against known skills.
     Case-insensitive matching.
     """
     if not text:
@@ -34,10 +46,10 @@ def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
 @router.get("/discover")
 def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """
-    Discover jobs based on active resume skills.
+    Discover jobs from Greenhouse job boards based on active resume skills.
 
-    Returns a list of job opportunities matched to the user's resume.
-    Jobs are sourced from captured applications with scraped job postings.
+    Fetches available jobs from configured companies' Greenhouse boards
+    and matches them against the user's resume.
     """
     # Get active resume
     resume = db.query(Resume).filter(Resume.is_active == True).first()
@@ -63,110 +75,76 @@ def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     user_skills = resume_data.skills if resume_data.skills else []
     user_skills_set = set(skill.lower() for skill in user_skills) if user_skills else set()
 
-    # Query all applications - use left join for optional posting data
-    # This allows showing applications even if scraping is incomplete or failed
-    applications_with_postings = (
-        db.query(Application, JobPosting, AnalysisResult)
-        .outerjoin(JobPosting, Application.posting_id == JobPosting.id)
-        .outerjoin(AnalysisResult, Application.analysis_id == AnalysisResult.id)
-        .filter(Application.is_deleted == False)
-        .all()
-    )
+    # Fetch jobs from all target companies
+    all_jobs = []
+    for company_slug in TARGET_COMPANIES:
+        company_jobs = fetch_all_greenhouse_jobs(company_slug)
+        all_jobs.extend(company_jobs)
 
-    # If no jobs found, return empty result with helpful message
-    if not applications_with_postings:
-        total_applications = db.query(Application).filter(Application.is_deleted == False).count()
+    logger.info(f"Fetched {len(all_jobs)} total jobs from {len(TARGET_COMPANIES)} companies")
 
-        if total_applications == 0:
-            message = "No jobs found. Capture job postings using the browser extension to see them here."
-        else:
-            message = f"{total_applications} job(s) captured but not yet scraped. Wait for scraping to complete."
-
+    if not all_jobs:
         logger.info(
-            "Job discovery returned empty results",
+            "Job discovery returned no jobs from Greenhouse",
             extra={
                 "resume_id": str(resume.id),
                 "user_skills_count": len(user_skills),
-                "total_applications": total_applications,
-                "reason": "no_extracted_postings",
-                "detail": message
+                "companies_checked": len(TARGET_COMPANIES)
             }
         )
-
-        # Return empty array to maintain API contract
         return []
 
-    # Build matched jobs list
+    # Match jobs to user skills
     matched_jobs = []
 
-    for app, posting, analysis in applications_with_postings:
-        # Prefer analysis match_score if available, otherwise calculate basic skill match
-        if analysis and analysis.match_score is not None:
-            match_percentage = analysis.match_score
-            # Extract matched skills from qualifications_met
-            matched_skills_list = analysis.qualifications_met if isinstance(analysis.qualifications_met, list) else []
-            match_reason = ", ".join(matched_skills_list[:5]) if matched_skills_list else "LLM analysis"
-        else:
-            # Fallback: Calculate basic skill match from requirements text
-            # Use posting data if available, otherwise no skill matching
-            if posting and (posting.requirements or posting.description):
-                job_skills = _extract_skills_from_text(
-                    posting.requirements or posting.description or "",
-                    user_skills
-                )
+    for job in all_jobs:
+        # Extract job details from Greenhouse API response
+        job_id = job.get("id")
+        job_title = job.get("title", "")
+        company_name = job.get("company_name", "Unknown Company")
+        location = job.get("location", {}).get("name", "Location not specified")
+        absolute_url = job.get("absolute_url", "")
 
-                if not job_skills or not user_skills:
-                    match_percentage = 0
-                    match_reason = "No skills detected"
-                else:
-                    job_skills_set = set(skill.lower() for skill in job_skills)
-                    matched_skills = job_skills_set.intersection(user_skills_set)
+        # Get job content for skill matching
+        job_content = job.get("content", "")
 
-                    if matched_skills:
-                        match_percentage = int((len(matched_skills) / len(job_skills_set)) * 100)
-                        # Capitalize matched skills for display
-                        match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
-                    else:
-                        match_percentage = 0
-                        match_reason = "No matching skills"
-            else:
-                # No posting data available yet - show with pending status
-                match_percentage = 0
-                match_reason = "Scraping in progress"
+        # Calculate skill match
+        if job_content and user_skills:
+            job_skills = _extract_skills_from_text(job_content, user_skills)
 
-        # Include all jobs (even 0% match and incomplete scraping) so users can see what they captured
-        matched_jobs.append({
-            "id": str(app.id),
-            "title": (posting.job_title if posting else None) or app.job_title or "Job Title Pending",
-            "company": (posting.company_name if posting else None) or app.company_name or "Company Pending",
-            "url": app.job_posting_url,
-            "location": (posting.location if posting else None) or "Location not specified",
-            "match_reason": match_reason,
-            "match_percentage": match_percentage,
-            "description": (
-                (posting.description[:200] + "...") if posting and posting.description and len(posting.description) > 200
-                else (posting.description if posting and posting.description else "Scraping in progress...")
-            ),
-            "has_analysis": analysis is not None,
-            "extraction_complete": posting.extraction_complete if posting else False,
-            "application_status": app.status
-        })
+            if job_skills:
+                job_skills_set = set(skill.lower() for skill in job_skills)
+                matched_skills = job_skills_set.intersection(user_skills_set)
 
-    # Sort by match percentage (highest first), then by created_at (newest first)
-    matched_jobs.sort(
-        key=lambda x: (x["match_percentage"], x.get("id", "")),
-        reverse=True
-    )
+                if matched_skills:
+                    match_count = len(matched_skills)
+                    match_percentage = int((match_count / len(user_skills_set)) * 100)
+                    match_reason = ", ".join(sorted(skill.title() for skill in matched_skills))
+
+                    # Only include jobs with at least one skill match
+                    matched_jobs.append({
+                        "id": str(job_id),
+                        "title": job_title,
+                        "company": company_name,
+                        "url": absolute_url,
+                        "location": location,
+                        "match_reason": match_reason,
+                        "match_percentage": match_percentage,
+                        "description": job_content[:200] + "..." if len(job_content) > 200 else job_content,
+                        "source": "greenhouse"
+                    })
+
+    # Sort by match percentage (highest first)
+    matched_jobs.sort(key=lambda x: x["match_percentage"], reverse=True)
 
     logger.info(
         "Job discovery completed",
         extra={
             "resume_id": str(resume.id),
             "user_skills_count": len(user_skills),
-            "matched_jobs_count": len(matched_jobs),
-            "jobs_with_analysis": len([j for j in matched_jobs if j["has_analysis"]])
+            "total_greenhouse_jobs": len(all_jobs),
+            "matched_jobs_count": len(matched_jobs)
         }
     )
 
-    # Return array to maintain API contract
     return matched_jobs
