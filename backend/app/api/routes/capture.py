@@ -163,6 +163,53 @@ def update_application(
     return application
 
 
+@router.delete("/{application_id}", status_code=204)
+def delete_application(
+    application_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an application (soft delete).
+
+    Marks the application as deleted rather than permanently removing it.
+    This preserves data integrity and allows for potential recovery.
+    """
+    try:
+        app_uuid = UUID(application_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid application ID format"
+        )
+
+    # Get application
+    application = db.query(Application).filter(
+        Application.id == app_uuid,
+        Application.is_deleted == False
+    ).first()
+
+    if not application:
+        raise HTTPException(
+            status_code=404,
+            detail="Application not found"
+        )
+
+    # Soft delete
+    application.is_deleted = True
+    db.commit()
+
+    logger.info(
+        "application_deleted",
+        extra={
+            "application_id": str(application.id),
+            "company_name": application.company_name,
+            "job_title": application.job_title
+        }
+    )
+
+    return None
+
+
 @router.post("/capture", response_model=ApplicationResponse, status_code=201)
 def capture_application(
     request: CaptureApplicationRequest,
