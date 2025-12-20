@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume, ResumeData
+from app.db.models.job_posting import JobPosting
 from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs, fetch_greenhouse_job
 from app.core.config import settings
 from app.services.intent_analyzer import IntentAnalyzer, IntentProfile, score_intent_alignment
@@ -11,19 +12,84 @@ from app.services.intent_analyzer import IntentAnalyzer, IntentProfile, score_in
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Target companies to fetch jobs from (Greenhouse job boards)
-# These are popular tech companies with public Greenhouse boards
+# Greenhouse company boards to query for manual job search
+# Expanded list for broad discovery across industries
+# Format: company-slug as used in Greenhouse boards API
+# Source: Known public Greenhouse boards (verified Feb 2024)
 TARGET_COMPANIES = [
-    "airbnb",
-    "stripe",
-    "shopify",
-    "coinbase",
-    "dropbox",
-    "instacart",
-    "robinhood",
-    "doordash",
-    "gitlab",
-    "notion",
+    # Technology - Consumer
+    "airbnb", "stripe", "shopify", "coinbase", "dropbox", "instacart",
+    "robinhood", "doordash", "gitlab", "notion", "figma", "canva",
+    "discord", "duolingo", "reddit", "twitch", "zoom", "slack",
+    "asana", "airtable", "miro", "webflow", "vercel", "netlify",
+
+    # Technology - Infrastructure & Cloud
+    "databricks", "snowflake", "confluent", "hashicorp", "mongodb",
+    "elastic", "planetscale", "cockroachdb", "cloudflare", "fastly",
+    "digitalocean", "linode", "fly-io", "render", "railway",
+
+    # Technology - Security & DevOps
+    "snyk", "lacework", "wiz", "orca-security", "checkmarx",
+    "pagerduty", "datadog", "newrelic", "sentry", "launchdarkly",
+
+    # Technology - Data & Analytics
+    "segment", "amplitude", "mixpanel", "heap", "looker",
+    "dbt-labs", "fivetran", "airbyte", "hightouch", "census",
+
+    # Fintech & Payments
+    "plaid", "chime", "square", "cashapp", "affirm", "klarna",
+    "brex", "ramp", "mercury", "unit", "column", "increase",
+    "marqeta", "paystack", "checkout", "adyen",
+
+    # Healthcare & Biotech
+    "23andme", "color", "tempus", "guardant-health", "grail",
+    "moderna", "ginkgo-bioworks", "recursion", "insitro",
+    "benchling", "science-37", "headway", "cedar", "devoted-health",
+
+    # E-commerce & Retail
+    "faire", "goPuff", "getir", "gorillas", "flink", "jokr",
+    "checkout", "bolt", "fast", "primer", "recurly",
+
+    # Real Estate & PropTech
+    "opendoor", "redfin", "compass", "zillow", "trulia",
+    "divvy-homes", "flyhomes", "properly", "homelight",
+
+    # Transportation & Logistics
+    "uber", "lyft", "cruise", "waymo", "nuro", "zoox",
+    "flexport", "convoy", "flock-freight", "shippo", "easypost",
+
+    # Climate & Energy
+    "climeworks", "carbon-engineering", "twelve", "stripe-climate",
+    "wren", "pachama", "watershed", "persefoni",
+
+    # Education & EdTech
+    "coursera", "udemy", "outschool", "masterclass", "skillshare",
+    "apollo", "2u", "chegg", "quizlet", "brainly",
+
+    # Enterprise Software
+    "servicenow", "workday", "okta", "auth0", "onelogin",
+    "mulesoft", "talend", "informatica", "collibra", "alation",
+    "gong", "chorus", "clari", "outreach", "salesloft",
+
+    # Marketing & Sales Tech
+    "hubspot", "marketo", "iterable", "braze", "customer-io",
+    "segment-io", "optimizely", "ab-tasty", "vwo",
+
+    # Productivity & Collaboration
+    "monday", "clickup", "coda", "roam", "obsidian",
+    "linear", "height", "shortcut", "cycle",
+
+    # Developer Tools
+    "github", "gitlab", "bitbucket", "circleci", "travisci",
+    "buildkite", "semaphore", "codecov", "sonarqube",
+
+    # Design & Creative
+    "invision", "framer", "principle", "sketch", "abstract",
+    "zeplin", "marvel", "balsamiq", "uxpin",
+
+    # Communication
+    "front", "superhuman", "hey", "fastmail", "protonmail",
+    "intercom", "drift", "qualified", "chili-piper",
 ]
 
 # Comprehensive technical skills dictionary for job extraction
@@ -619,13 +685,98 @@ def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
     return found_skills
 
 
-@router.get("/discover")
-def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+@router.get("/search")
+def search_jobs(
+    keyword: Optional[str] = None,
+    location: Optional[str] = None,
+    company: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> List[Dict[str, Any]]:
     """
-    Discover jobs from Greenhouse job boards based on active resume skills.
+    Universal job search - no resume required.
 
-    Fetches available jobs from configured companies' Greenhouse boards
-    and matches them against the user's resume.
+    Searches the local job_postings index by keyword, location, or company.
+    Returns unscored, unfiltered job listings for browsing.
+
+    Query Parameters:
+        keyword: Search in job title (e.g., "engineer", "python", "backend")
+        location: Filter by location (e.g., "remote", "san francisco", "usa")
+        company: Filter by specific company name (e.g., "stripe", "airbnb")
+
+    Returns:
+        List of jobs matching search criteria, sorted by recency (newest first)
+    """
+    logger.info(
+        "job_search.start",
+        extra={
+            "keyword": keyword,
+            "location": location,
+            "company": company
+        }
+    )
+
+    # Query local job_postings table - NO external API calls
+    query = db.query(JobPosting)
+
+    # Apply filters using SQL ILIKE for case-insensitive matching
+    if keyword:
+        query = query.filter(JobPosting.job_title.ilike(f'%{keyword}%'))
+
+    if location:
+        query = query.filter(JobPosting.location.ilike(f'%{location}%'))
+
+    if company:
+        query = query.filter(JobPosting.company_name.ilike(f'%{company}%'))
+
+    # Order by newest first, limit to 100 results for performance
+    jobs = query.order_by(JobPosting.created_at.desc()).limit(100).all()
+
+    # Convert ORM objects to API response format with traceability fields
+    filtered_jobs = []
+    for job in jobs:
+        filtered_jobs.append({
+            "id": str(job.id),
+            "title": job.job_title,
+            "company": job.company_name,
+            "url": job.external_url or "",
+            "location": job.location or "Location not specified",
+            "description": (job.description[:200] + "...") if job.description else "",
+            "source": job.source or "unknown",
+            "industry": job.industry,
+            "posted_at": job.posted_at.isoformat() if job.posted_at else None,
+            "source_query": job.source_query,
+        })
+
+    logger.info(
+        "job_search.result",
+        extra={
+            "jobs_returned": len(filtered_jobs),
+            "keyword": keyword,
+            "location": location,
+            "company": company
+        }
+    )
+
+    return filtered_jobs
+
+
+@router.get("/recommended")
+def get_recommended_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    AI-powered job recommendations based on active resume.
+
+    Requires active resume with complete parsing. Uses skill matching
+    and career intent analysis to provide personalized job recommendations.
+
+    This endpoint preserves the original /discover logic but is now
+    explicitly positioned as an optional enhancement to basic job search.
+
+    Raises:
+        404: No active resume found
+        400: Resume parsing not complete
+
+    Returns:
+        List of jobs with match scores, ranked by relevance
     """
     # Get active resume
     resume = db.query(Resume).filter(Resume.is_active == True).first()

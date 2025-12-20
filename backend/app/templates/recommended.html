@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}AI Recommendations - AppTrack{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✨ AI-Powered Recommendations</h2>
+    <p>Jobs matched to your resume using skill analysis and career intent modeling.</p>
+</div>
+
+<!-- Initial state - shown before user clicks button -->
+<div id="initial-state" class="card hide" style="text-align: center; padding: 3rem;">
+    <h3>Ready to find your perfect matches?</h3>
+    <p style="margin: 1.5rem 0;">Click below to analyze your resume and get AI-powered job recommendations.</p>
+    <button id="run-recommendations-btn" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;">
+        🚀 Run AI Recommendations
+    </button>
+    <p style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
+        This will analyze your resume skills, experience, and career intent to find the best job matches.
+    </p>
+</div>
+
+<div id="loading" class="loading hide">
+    <p>Analyzing your resume and matching jobs...</p>
+</div>
+
+<div id="jobs-container"></div>
+
+<div id="empty-state" class="empty-state hide">
+    <h3>No Recommendations Found</h3>
+    <p>No jobs match your resume. This could mean:</p>
+    <ul style="text-align: left; max-width: 500px; margin: 1rem auto;">
+        <li>No open positions match your skills</li>
+        <li>Your resume may need more technical skills listed</li>
+        <li>Try updating your resume with more relevant experience</li>
+    </ul>
+    <p style="margin-top: 1rem;"><small>Companies analyzed: Airbnb, Stripe, Shopify, Coinbase, Dropbox, Instacart, Robinhood, DoorDash, GitLab, Notion</small></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/recommended.js"></script>
+{% endblock %}
