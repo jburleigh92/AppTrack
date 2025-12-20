@@ -8,7 +8,19 @@
     <p>Jobs matched to your resume using skill analysis and career intent modeling.</p>
 </div>
 
-<div id="loading" class="loading">
+<!-- Initial state - shown before user clicks button -->
+<div id="initial-state" class="card hide" style="text-align: center; padding: 3rem;">
+    <h3>Ready to find your perfect matches?</h3>
+    <p style="margin: 1.5rem 0;">Click below to analyze your resume and get AI-powered job recommendations.</p>
+    <button id="run-recommendations-btn" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;">
+        🚀 Run AI Recommendations
+    </button>
+    <p style="margin-top: 1rem; color: #666; font-size: 0.9rem;">
+        This will analyze your resume skills, experience, and career intent to find the best job matches.
+    </p>
+</div>
+
+<div id="loading" class="loading hide">
     <p>Analyzing your resume and matching jobs...</p>
 </div>
 

@@ -1,12 +1,16 @@
 // AI-powered job recommendations page
 // REQUIRES RESUME - uses intent analysis and skill matching
+// USER MUST CLICK BUTTON TO RUN - no auto-execution
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const runButton = document.getElementById('run-recommendations-btn');
     const loading = document.getElementById('loading');
     const jobsContainer = document.getElementById('jobs-container');
     const emptyState = document.getElementById('empty-state');
+    const initialState = document.getElementById('initial-state');
 
     // Check for active resume (REQUIRED for this page)
+    let hasResume = false;
     try {
         const activeResume = await checkActiveResume();
         if (!activeResume) {
@@ -17,7 +21,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
+        hasResume = true;
         setActiveResumeId(activeResume.id);
+
+        // Show initial state with button
+        if (initialState) {
+            initialState.classList.remove('hide');
+        }
     } catch (error) {
         showAlert('Error checking resume: ' + error.message, 'error');
         setTimeout(() => {
@@ -26,15 +36,45 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // Load AI-powered recommendations
+    // Wire button click handler - ONLY way to trigger AI
+    if (runButton && hasResume) {
+        runButton.addEventListener('click', async () => {
+            await runRecommendations();
+        });
+    }
+});
+
+async function runRecommendations() {
+    const runButton = document.getElementById('run-recommendations-btn');
+    const loading = document.getElementById('loading');
+    const jobsContainer = document.getElementById('jobs-container');
+    const emptyState = document.getElementById('empty-state');
+    const initialState = document.getElementById('initial-state');
+
     try {
-        // ONLY call the recommended endpoint - AI matching with scoring
+        // Hide initial state, show loading
+        if (initialState) {
+            initialState.classList.add('hide');
+        }
+        loading.classList.remove('hide');
+
+        // Disable button during execution
+        if (runButton) {
+            runButton.disabled = true;
+            runButton.textContent = 'Analyzing Resume...';
+        }
+
+        // ONLY NOW call the AI endpoint - user explicitly clicked
         const jobs = await apiFetch('/jobs/recommended');
 
         loading.classList.add('hide');
 
         if (!jobs || jobs.length === 0) {
             emptyState.classList.remove('hide');
+            if (runButton) {
+                runButton.disabled = false;
+                runButton.textContent = 'Run AI Recommendations';
+            }
             return;
         }
 
@@ -42,11 +82,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         jobsContainer.innerHTML = jobs.map(job => createRecommendedJobCard(job)).join('');
         setupJobCardListeners();
 
+        // Update button
+        if (runButton) {
+            runButton.disabled = false;
+            runButton.textContent = 'Refresh Recommendations';
+        }
+
     } catch (error) {
         loading.classList.add('hide');
         showAlert('Error loading recommendations: ' + error.message, 'error');
+
+        // Re-enable button on error
+        if (runButton) {
+            runButton.disabled = false;
+            runButton.textContent = 'Run AI Recommendations';
+        }
+
+        // Show initial state again
+        if (initialState) {
+            initialState.classList.remove('hide');
+        }
     }
-});
+}
 
 function setupJobCardListeners() {
     document.querySelectorAll('.apply-btn').forEach(btn => {
