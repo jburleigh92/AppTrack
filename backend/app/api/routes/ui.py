@@ -16,8 +16,14 @@ async def resume_upload_page(request: Request):
 
 @router.get("/jobs", response_class=HTMLResponse)
 async def jobs_page(request: Request):
-    """Serve job recommendations page"""
+    """Serve job search page (universal, no resume required)"""
     return templates.TemplateResponse("jobs.html", {"request": request})
+
+
+@router.get("/jobs/recommended", response_class=HTMLResponse)
+async def recommended_jobs_page(request: Request):
+    """Serve AI-powered job recommendations page (requires resume)"""
+    return templates.TemplateResponse("recommended.html", {"request": request})
 
 
 @router.get("/applications", response_class=HTMLResponse)

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="card">
     <h2>Job Search</h2>
-    <p>Browse jobs from top tech companies. Upload a resume to get AI-powered recommendations.</p>
+    <p>Browse jobs from top tech companies. No resume required.</p>
 
     <!-- Search Form -->
     <form id="search-form" style="margin-top: 1.5rem;">
@@ -44,23 +44,6 @@
             </div>
         </div>
     </form>
-</div>
-
-<!-- Optional: AI-Powered Recommendations (only shown if resume exists) -->
-<div id="recommended-section" class="card hide" style="margin-top: 2rem; background: #f8f9fa; border-left: 4px solid #007bff;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <h3 style="margin: 0;">✨ Recommended for You</h3>
-            <p style="margin: 0.5rem 0 0 0; color: #666;">AI-matched jobs based on your resume</p>
-        </div>
-        <button onclick="loadRecommendedJobs()" class="btn btn-secondary" style="white-space: nowrap;">
-            Load Recommendations
-        </button>
-    </div>
-    <div id="recommended-loading" class="loading hide" style="margin-top: 1rem;">
-        <p>Analyzing your resume and matching jobs...</p>
-    </div>
-    <div id="recommended-jobs-container" style="margin-top: 1rem;"></div>
 </div>
 
 <div id="loading" class="loading">

@@ -1,32 +1,11 @@
 // Universal job search screen logic
-
-let hasActiveResume = false;
-let activeResumeId = null;
+// SEARCH ONLY - no resume dependencies, no AI matching
 
 document.addEventListener('DOMContentLoaded', async () => {
     const loading = document.getElementById('loading');
     const jobsContainer = document.getElementById('jobs-container');
     const emptyState = document.getElementById('empty-state');
     const searchForm = document.getElementById('search-form');
-    const recommendedSection = document.getElementById('recommended-section');
-
-    // Check for active resume (optional - doesn't block page)
-    try {
-        const activeResume = await checkActiveResume();
-        if (activeResume) {
-            hasActiveResume = true;
-            activeResumeId = activeResume.id;
-            setActiveResumeId(activeResume.id);
-
-            // Show recommendations section if resume exists
-            if (recommendedSection) {
-                recommendedSection.classList.remove('hide');
-            }
-        }
-    } catch (error) {
-        // Resume check failed - that's OK, continue without it
-        console.log('No active resume found - search-only mode enabled');
-    }
 
     // Set up search form
     if (searchForm) {
@@ -63,6 +42,7 @@ async function performSearch() {
         jobsContainer.innerHTML = '';
         emptyState.classList.add('hide');
 
+        // ONLY call search endpoint - no AI, no matching, no resume
         const jobs = await apiFetch(`/jobs/search${queryString}`);
 
         loading.classList.add('hide');
@@ -83,47 +63,13 @@ async function performSearch() {
             return;
         }
 
-        // Display jobs
-        jobsContainer.innerHTML = jobs.map(job => createJobCard(job, false)).join('');
+        // Display jobs WITHOUT match scores
+        jobsContainer.innerHTML = jobs.map(job => createJobCard(job)).join('');
         setupJobCardListeners();
 
     } catch (error) {
         loading.classList.add('hide');
         showAlert('Error loading jobs: ' + error.message, 'error');
-    }
-}
-
-async function loadRecommendedJobs() {
-    const recommendedContainer = document.getElementById('recommended-jobs-container');
-    const recommendedLoading = document.getElementById('recommended-loading');
-
-    if (!hasActiveResume) {
-        return; // Can't load recommendations without resume
-    }
-
-    try {
-        recommendedLoading?.classList.remove('hide');
-
-        const jobs = await apiFetch('/jobs/recommended');
-
-        recommendedLoading?.classList.add('hide');
-
-        if (!jobs || jobs.length === 0) {
-            if (recommendedContainer) {
-                recommendedContainer.innerHTML = '<p>No AI-matched jobs found for your resume.</p>';
-            }
-            return;
-        }
-
-        // Display recommended jobs with match scores
-        if (recommendedContainer) {
-            recommendedContainer.innerHTML = jobs.slice(0, 5).map(job => createJobCard(job, true)).join('');
-            setupJobCardListeners();
-        }
-
-    } catch (error) {
-        recommendedLoading?.classList.add('hide');
-        console.error('Error loading recommended jobs:', error);
     }
 }
 
@@ -154,10 +100,8 @@ function setupJobCardListeners() {
     });
 }
 
-function createJobCard(job, showMatchScore = false) {
-    const missingSkills = job.missing_skills || [];
-    const matchPercentage = job.match_percentage || 0;
-
+function createJobCard(job) {
+    // Simple job card - NO match scores, NO AI explanations
     return `
         <div class="job-card">
             <div class="job-header">
@@ -165,22 +109,11 @@ function createJobCard(job, showMatchScore = false) {
                     <h3 class="job-title">${job.title}</h3>
                     <p class="job-company">${job.company}</p>
                 </div>
-                ${showMatchScore ? `<span class="match-badge">${matchPercentage}%</span>` : ''}
             </div>
 
             <div class="job-meta">
                 ${job.location ? `<p>📍 ${job.location}</p>` : ''}
-                ${showMatchScore && job.match_reason ? `<p><strong>Why this match:</strong> ${job.match_reason}</p>` : ''}
             </div>
-
-            ${showMatchScore && missingSkills.length > 0 ? `
-                <details class="missing-skills">
-                    <summary>Missing ${missingSkills.length} skill${missingSkills.length > 1 ? 's' : ''}</summary>
-                    <div class="missing-skills-list">
-                        ${missingSkills.map(skill => `<span class="missing-skill-tag">${skill}</span>`).join('')}
-                    </div>
-                </details>
-            ` : ''}
 
             <div class="job-actions">
                 <button class="btn btn-primary apply-btn" data-url="${job.url || ''}">

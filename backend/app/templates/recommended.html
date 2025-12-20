@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}AI Recommendations - AppTrack{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✨ AI-Powered Recommendations</h2>
+    <p>Jobs matched to your resume using skill analysis and career intent modeling.</p>
+</div>
+
+<div id="loading" class="loading">
+    <p>Analyzing your resume and matching jobs...</p>
+</div>
+
+<div id="jobs-container"></div>
+
+<div id="empty-state" class="empty-state hide">
+    <h3>No Recommendations Found</h3>
+    <p>No jobs match your resume. This could mean:</p>
+    <ul style="text-align: left; max-width: 500px; margin: 1rem auto;">
+        <li>No open positions match your skills</li>
+        <li>Your resume may need more technical skills listed</li>
+        <li>Try updating your resume with more relevant experience</li>
+    </ul>
+    <p style="margin-top: 1rem;"><small>Companies analyzed: Airbnb, Stripe, Shopify, Coinbase, Dropbox, Instacart, Robinhood, DoorDash, GitLab, Notion</small></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/recommended.js"></script>
+{% endblock %}
