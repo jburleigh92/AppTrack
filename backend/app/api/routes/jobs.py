@@ -619,7 +619,7 @@ def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
     return found_skills
 
 
-@router.get("/search")
+@router.get("/discover")
 def search_jobs(
     keyword: Optional[str] = None,
     location: Optional[str] = None,
