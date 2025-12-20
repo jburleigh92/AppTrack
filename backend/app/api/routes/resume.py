@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import update
 from app.api.dependencies.database import get_db
 from app.db.models.resume import Resume
-from app.schemas.resume import ResumeUploadResponse, ResumeResponse, ResumeDataResponse
+from app.schemas.resume import ResumeUploadResponse, ResumeResponse, ResumeDataResponse, ResumeWithDataResponse
 from app.core.config import settings
 from app.services.resume_parser import parse_resume_sync
 
@@ -163,11 +163,13 @@ async def upload_resume(
         )
 
 
-@router.get("/active", response_model=ResumeResponse)
+@router.get("/active", response_model=ResumeWithDataResponse)
 def get_active_resume(db: Session = Depends(get_db)):
     """
-    Get the currently active resume.
+    Get the currently active resume with parsed data.
     """
+    from app.db.models.resume import ResumeData
+
     resume = db.query(Resume).filter(Resume.is_active == True).first()
 
     if not resume:
@@ -176,7 +178,46 @@ def get_active_resume(db: Session = Depends(get_db)):
             detail="No active resume found"
         )
 
-    return resume
+    # Fetch resume_data if it exists
+    resume_data = db.query(ResumeData).filter(
+        ResumeData.resume_id == resume.id
+    ).first()
+
+    # Build response with resume + resume_data fields
+    response_data = {
+        "id": resume.id,
+        "filename": resume.filename,
+        "file_size_bytes": resume.file_size_bytes,
+        "mime_type": resume.mime_type,
+        "status": resume.status,
+        "is_active": resume.is_active,
+        "uploaded_at": resume.uploaded_at,
+    }
+
+    # Add parsed data fields if resume_data exists
+    if resume_data:
+        response_data.update({
+            "email": resume_data.email,
+            "phone": resume_data.phone,
+            "linkedin_url": resume_data.linkedin_url,
+            "skills": resume_data.skills or [],
+            "experience": resume_data.experience or [],
+            "education": resume_data.education or [],
+            "extraction_complete": resume_data.extraction_complete,
+        })
+    else:
+        # Default values if no resume_data yet
+        response_data.update({
+            "email": None,
+            "phone": None,
+            "linkedin_url": None,
+            "skills": [],
+            "experience": [],
+            "education": [],
+            "extraction_complete": False,
+        })
+
+    return ResumeWithDataResponse(**response_data)
 
 
 @router.get("/{resume_id}/data", response_model=ResumeDataResponse)

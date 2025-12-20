@@ -45,6 +45,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <p style="margin-top: 1rem;"><small>Companies checked: Airbnb, Stripe, Shopify, Coinbase, Dropbox, Instacart, Robinhood, DoorDash, GitLab, Notion</small></p>
             `;
 
+
+         main
             emptyState.classList.remove('hide');
             return;
         }

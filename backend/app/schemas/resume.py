@@ -36,3 +36,22 @@ class ResumeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ResumeWithDataResponse(BaseModel):
+    """Extended resume response that includes parsed data for UI"""
+    id: UUID
+    filename: str
+    file_size_bytes: int
+    mime_type: str
+    status: str
+    is_active: bool
+    uploaded_at: datetime
+    # Parsed data fields from ResumeData
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    skills: List[str] = []
+    experience: List[Dict[str, Any]] = []
+    education: List[Dict[str, Any]] = []
+    extraction_complete: bool = False
