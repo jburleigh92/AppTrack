@@ -54,32 +54,35 @@ def create_timeline_event(
 ):
     """
     Create a timeline event manually (for internal/admin use).
-    
+
     Most timeline events are created automatically by the system,
     but this endpoint allows manual event creation.
+
+    Note: occurred_at timestamp is always auto-generated (current time).
+    Custom timestamps are not accepted to maintain audit integrity.
     """
     # Verify application exists
     application = db.query(Application).filter(
         Application.id == application_id,
         Application.is_deleted == False
     ).first()
-    
+
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
-    
-    # Create event
+
+    # Create event - ALWAYS use current time, ignore client-provided timestamp
     created_event = create_event_sync(
         db=db,
         application_id=application_id,
         event_type=event.event_type,
         event_data=event.event_data,
-        occurred_at=event.occurred_at
+        occurred_at=None  # Force auto-timestamp
     )
-    
+
     if not created_event:
         raise HTTPException(
             status_code=500,
             detail="Failed to create timeline event"
         )
-    
+
     return created_event

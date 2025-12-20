@@ -66,7 +66,10 @@ class ResumeData(Base, TimestampMixin):
     
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_text_other: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
+    # Career intent profile for job matching
+    intent_profile: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
     extraction_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     resume = relationship("Resume", back_populates="resume_data")

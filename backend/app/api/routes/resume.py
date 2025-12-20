@@ -103,11 +103,33 @@ async def upload_resume(
         try:
             resume_data = parse_resume_sync(resume.id, db)
 
+            # Generate warnings for missing or incomplete data
+            warnings = []
+
+            if not resume_data.email:
+                warnings.append("No email address found. Job alerts and email notifications won't work.")
+
+            if not resume_data.phone:
+                warnings.append("No phone number found.")
+
+            if not resume_data.linkedin_url:
+                warnings.append("No LinkedIn URL found.")
+
+            if not resume_data.skills or len(resume_data.skills) == 0:
+                warnings.append("No skills detected. Job matching may be limited. Consider adding skills manually.")
+
+            if not resume_data.experience or len(resume_data.experience) == 0:
+                warnings.append("No work experience found. Analysis quality may be reduced.")
+
+            if not resume_data.education or len(resume_data.education) == 0:
+                warnings.append("No education found.")
+
             return ResumeUploadResponse(
                 resume_id=resume.id,
                 status="parsed",
                 resume_data=ResumeDataResponse.from_orm(resume_data),
-                error_message=None
+                error_message=None,
+                warnings=warnings
             )
 
         except ValueError as parse_error:
@@ -118,7 +140,8 @@ async def upload_resume(
                 resume_id=resume.id,
                 status="failed",
                 resume_data=None,
-                error_message=str(parse_error)
+                error_message=str(parse_error),
+                warnings=[]
             )
 
     except HTTPException:

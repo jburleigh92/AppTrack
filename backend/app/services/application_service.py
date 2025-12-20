@@ -12,27 +12,35 @@ def create_application_from_capture(
     db: Session,
     request: CaptureApplicationRequest
 ) -> Application:
-    
-    # Validation
-    if request.company_name == "string":
-        raise ValueError("string is not an accepted company name")
-    if request.company_name is None:
-        raise ValueError("NONE is not an accepted company name")
-    if request.job_title == "string":
-        raise ValueError("string is not an accepted job title")
-    if request.job_title is None:
-        raise ValueError("NONE is not an accepted job title")
-    if request.job_posting_url == "string":
-        raise ValueError("string is not an accepted URL")
-    if request.job_posting_url is None:
-        raise ValueError("NONE is not an accepted URL")
-    if request.notes == "string":
-        raise ValueError("string is not an accepted note")
-    if request.notes is None:
-        raise ValueError("NONE is not an accepted note")
-    
-
     """Create application record from browser extension capture."""
+
+    # Semantic validation - check for meaningful data, not specific strings
+    if not request.company_name or len(request.company_name.strip()) < 2:
+        raise ValueError("Company name must be at least 2 characters")
+
+    company_lower = request.company_name.strip().lower()
+    if company_lower in ["unknown", "n/a", "none", "null", "undefined", "test"]:
+        raise ValueError("Please provide a valid company name")
+
+    if not request.job_title or len(request.job_title.strip()) < 2:
+        raise ValueError("Job title must be at least 2 characters")
+
+    job_title_lower = request.job_title.strip().lower()
+    if job_title_lower in ["unknown", "n/a", "none", "null", "undefined", "test"]:
+        raise ValueError("Please provide a valid job title")
+
+    if not request.job_posting_url or len(request.job_posting_url.strip()) < 10:
+        raise ValueError("Job posting URL must be at least 10 characters")
+
+    url_lower = request.job_posting_url.strip().lower()
+    if not (url_lower.startswith("http://") or url_lower.startswith("https://")):
+        raise ValueError("Job posting URL must start with http:// or https://")
+
+    if url_lower in ["http://example.com", "https://example.com", "http://localhost", "https://localhost"]:
+        raise ValueError("Please provide a real job posting URL")
+
+    # Notes can be empty or any value (optional field)
+
     # Get active resume
     active_resume = db.query(Resume).filter(Resume.is_active == True).first()
 

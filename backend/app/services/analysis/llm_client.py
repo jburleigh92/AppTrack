@@ -37,7 +37,57 @@ class LLMClient:
                 self.client = None
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
-    
+
+    def analyze(self, prompt: str) -> str:
+        """
+        Synchronous analysis method for intent profiling.
+
+        Args:
+            prompt: The prompt to send to the LLM
+
+        Returns:
+            str: The LLM's response text
+        """
+        if not self.client:
+            raise RuntimeError(f"{self.provider} SDK not available")
+
+        try:
+            if self.provider == "openai":
+                # Synchronous OpenAI call
+                import openai
+                sync_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                response = sync_client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "You are a precise analyzer. Return only valid JSON."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=self.settings.temperature,
+                    max_tokens=self.settings.max_tokens,
+                )
+                return response.choices[0].message.content
+
+            elif self.provider == "anthropic":
+                # Synchronous Anthropic call
+                import anthropic
+                sync_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+                response = sync_client.messages.create(
+                    model=self.model,
+                    max_tokens=self.settings.max_tokens,
+                    temperature=self.settings.temperature,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                return response.content[0].text
+
+            else:
+                raise ValueError(f"Unsupported provider: {self.provider}")
+
+        except Exception as e:
+            logger.error(f"LLM call failed: {str(e)}", exc_info=True)
+            raise
+
     async def analyze_job_vs_resume(
         self,
         job_description: str,
@@ -46,24 +96,26 @@ class LLMClient:
         resume_skills: List[str],
         resume_experience: List[dict],
         resume_education: List[dict],
+        intent_profile: Optional[dict] = None
     ) -> dict:
         """
         Calls the LLM and returns a parsed dict with analysis results.
-        
+
         Returns:
             dict with keys: match_score, matched_qualifications, missing_qualifications,
                           skill_suggestions, model_used, tokens_used
         """
         if not self.client:
             raise RuntimeError(f"{self.provider} SDK not available")
-        
+
         prompt = self._build_prompt(
             job_description=job_description,
             job_requirements=job_requirements,
             resume_summary=resume_summary,
             resume_skills=resume_skills,
             resume_experience=resume_experience,
-            resume_education=resume_education
+            resume_education=resume_education,
+            intent_profile=intent_profile
         )
         
         try:
@@ -90,47 +142,70 @@ class LLMClient:
         resume_summary: Optional[str],
         resume_skills: List[str],
         resume_experience: List[dict],
-        resume_education: List[dict]
+        resume_education: List[dict],
+        intent_profile: Optional[dict] = None
     ) -> str:
         """Build the analysis prompt."""
-        prompt = """You are a job application analyzer. Compare the candidate's resume against a job posting and provide a structured analysis.
+
+        # Build intent context section if available
+        intent_section = ""
+        if intent_profile:
+            primary_archetype = intent_profile.get("primary_archetype", "").replace("_", " ").title()
+            confidence = intent_profile.get("archetype_confidence", 0)
+            reasoning = intent_profile.get("reasoning", "")
+
+            intent_section = f"""
+CANDIDATE CAREER INTENT:
+---
+The candidate's resume signals a primary career target of: {primary_archetype}
+Confidence: {confidence:.0%}
+Context: {reasoning}
+
+This intent profile should inform your analysis - evaluate not just skill overlap,
+but whether this role aligns with the candidate's apparent career direction.
+---
+
+"""
+
+        prompt = f"""You are a job application analyzer. Compare the candidate's resume against a job posting and provide a structured analysis.
 
 JOB POSTING:
 ---
 Description:
-{job_description}
+{{job_description}}
 
-{job_requirements_section}
+{{job_requirements_section}}
 ---
 
 CANDIDATE RESUME:
 ---
-{resume_summary_section}
+{{resume_summary_section}}
 
 Skills:
-{skills_list}
+{{skills_list}}
 
 Experience:
-{experience_list}
+{{experience_list}}
 
 Education:
-{education_list}
+{{education_list}}
 ---
 
-Analyze the match between this resume and job posting. Return ONLY valid JSON with this exact structure:
+{intent_section}Analyze the match between this resume and job posting. Return ONLY valid JSON with this exact structure:
 
-{{
+{{{{
   "match_score": <integer 0-100>,
   "matched_qualifications": [<list of qualification strings the candidate meets>],
   "missing_qualifications": [<list of qualification strings the candidate lacks>],
   "skill_suggestions": [<list of specific skills the candidate should highlight or develop>]
-}}
+}}}}
 
 Guidelines:
 - match_score: 0-100 where 100 is perfect match
+- Consider both skill overlap AND career intent alignment
 - matched_qualifications: specific requirements from job posting that candidate meets
 - missing_qualifications: specific requirements from job posting that candidate lacks
-- skill_suggestions: actionable skills to learn or emphasize
+- skill_suggestions: actionable skills to learn or emphasize, considering their career intent
 
 Return ONLY the JSON object, no other text.
 """

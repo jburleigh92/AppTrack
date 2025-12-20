@@ -32,6 +32,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         loading.classList.add('hide');
 
         if (!jobs || jobs.length === 0) {
+            // Update empty state for Greenhouse-based discovery
+            emptyState.innerHTML = `
+                <h3>No Job Recommendations</h3>
+                <p>Checked job boards from 10 tech companies, found 0 matching your skills.</p>
+                <p>This means either:</p>
+                <ul style="text-align: left; max-width: 500px; margin: 1rem auto;">
+                    <li>No open positions match your resume skills</li>
+                    <li>Your resume may need more skills listed</li>
+                    <li>Try uploading a resume with more technical skills</li>
+                </ul>
+                <p style="margin-top: 1rem;"><small>Companies checked: Airbnb, Stripe, Shopify, Coinbase, Dropbox, Instacart, Robinhood, DoorDash, GitLab, Notion</small></p>
+            `;
+
+
+         main
             emptyState.classList.remove('hide');
             return;
         }

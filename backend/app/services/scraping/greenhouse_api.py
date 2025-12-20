@@ -1,66 +1,144 @@
 import logging
 import httpx
-from typing import Optional
+import time
+from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_greenhouse_job(company_slug: str, job_id: str) -> Optional[dict]:
+def fetch_all_greenhouse_jobs(company_slug: str, max_retries: int = 3) -> List[Dict[str, Any]]:
     """
-    Fetch job data from Greenhouse Boards API.
+    Fetch all available jobs from a Greenhouse company board.
+
+    Args:
+        company_slug: Company identifier (e.g., 'airbnb', 'stripe', 'shopify')
+        max_retries: Maximum number of retry attempts for rate limiting
+
+    Returns:
+        List of job dictionaries with fields: id, title, location, departments, etc.
+    """
+    url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs"
+    backoff_delays = [1, 2, 4]
+
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(
+                timeout=10.0,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json",
+                }
+            ) as client:
+                response = client.get(url)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    jobs = data.get("jobs", [])
+                    logger.info(f"Fetched {len(jobs)} jobs from Greenhouse for {company_slug}")
+                    return jobs
+
+                elif response.status_code == 404:
+                    logger.info(f"Greenhouse board not found for company: {company_slug}")
+                    return []
+
+                elif response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        delay = backoff_delays[attempt]
+                        logger.warning(f"Rate limited fetching {company_slug} jobs. Retrying in {delay}s...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Rate limit exceeded for {company_slug}")
+                        return []
+
+                else:
+                    logger.warning(f"Greenhouse API returned {response.status_code} for {company_slug}")
+                    return []
+
+        except Exception as e:
+            logger.warning(f"Error fetching jobs for {company_slug}: {str(e)}")
+            return []
+
+    return []
+
+
+def fetch_greenhouse_job(company_slug: str, job_id: str, max_retries: int = 3) -> Optional[dict]:
+    """
+    Fetch job data from Greenhouse Boards API with retry logic.
 
     Args:
         company_slug: Company identifier (e.g., 'company-name')
         job_id: Greenhouse job ID (numeric string)
+        max_retries: Maximum number of retry attempts for rate limiting
 
     Returns:
         Parsed JSON dict if successful, None otherwise
     """
     url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs/{job_id}"
+    backoff_delays = [1, 2, 4]  # Exponential backoff: 1s, 2s, 4s
 
-    try:
-        with httpx.Client(
-            timeout=10.0,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json",
-            }
-        ) as client:
-            response = client.get(url)
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(
+                timeout=10.0,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json",
+                }
+            ) as client:
+                response = client.get(url)
 
-            if response.status_code == 200:
-                logger.info(
-                    f"Greenhouse Boards API success for {company_slug}/{job_id}"
-                )
-                return response.json()
+                if response.status_code == 200:
+                    logger.info(
+                        f"Greenhouse Boards API success for {company_slug}/{job_id}"
+                    )
+                    return response.json()
 
-            elif response.status_code == 404:
-                logger.info(
-                    f"Greenhouse Boards API returned 404 — job not publicly available: {company_slug}/{job_id}"
-                )
-                return None
+                elif response.status_code == 404:
+                    logger.info(
+                        f"Greenhouse Boards API returned 404 — job not publicly available: {company_slug}/{job_id}"
+                    )
+                    return None  # Don't retry 404s
 
-            else:
-                logger.warning(
-                    f"Greenhouse Boards API returned {response.status_code} for {company_slug}/{job_id}"
-                )
-                return None
+                elif response.status_code == 429:
+                    # Rate limited - retry with backoff
+                    if attempt < max_retries - 1:
+                        delay = backoff_delays[attempt]
+                        logger.warning(
+                            f"Greenhouse API rate limited (429) for {company_slug}/{job_id}. "
+                            f"Retrying in {delay}s (attempt {attempt + 1}/{max_retries})..."
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"Greenhouse API rate limit exceeded after {max_retries} attempts for {company_slug}/{job_id}"
+                        )
+                        return None
 
-    except httpx.TimeoutException:
-        logger.warning(f"Greenhouse Boards API timeout for {company_slug}/{job_id}")
-        return None
+                else:
+                    logger.warning(
+                        f"Greenhouse Boards API returned {response.status_code} for {company_slug}/{job_id}"
+                    )
+                    return None  # Don't retry other status codes
 
-    except httpx.ConnectError:
-        logger.warning(f"Greenhouse Boards API connection error for {company_slug}/{job_id}")
-        return None
+        except httpx.TimeoutException:
+            logger.warning(f"Greenhouse Boards API timeout for {company_slug}/{job_id}")
+            return None
 
-    except Exception as e:
-        logger.warning(
-            f"Greenhouse Boards API error for {company_slug}/{job_id}: {str(e)}"
-        )
-        return None
+        except httpx.ConnectError:
+            logger.warning(f"Greenhouse Boards API connection error for {company_slug}/{job_id}")
+            return None
+
+        except Exception as e:
+            logger.warning(
+                f"Greenhouse Boards API error for {company_slug}/{job_id}: {str(e)}"
+            )
+            return None
+
+    return None  # Fallback if all retries exhausted
 
 
 def extract_company_slug(url: str, html: Optional[str] = None) -> Optional[str]:

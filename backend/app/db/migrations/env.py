@@ -7,6 +7,27 @@ import sys
 
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), "../../../")))
 
+# Load .env file if it exists
+# Try multiple locations to handle different working directories
+try:
+    from dotenv import load_dotenv
+
+    # Possible .env file locations
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), "../../../.env"),  # backend/.env
+        os.path.join(os.getcwd(), ".env"),  # current working directory
+        os.path.join(os.getcwd(), "backend/.env"),  # if run from project root
+    ]
+
+    for env_path in possible_paths:
+        env_path = os.path.abspath(env_path)
+        if os.path.exists(env_path):
+            load_dotenv(env_path)
+            break
+except ImportError:
+    # dotenv not installed, skip loading .env file
+    pass
+
 from app.db.base import Base
 from app.db.models import *
 
