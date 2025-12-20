@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.db.models.job_posting import JobPosting
 from app.services.scraping.greenhouse_api import fetch_all_greenhouse_jobs
+from app.services.seed_data import generate_seed_jobs
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,58 @@ def ingest_greenhouse_jobs(db: Session, company_slugs: List[str]) -> Dict[str, i
             continue
 
     logger.info(f"Greenhouse ingestion complete: {stats}")
+    return stats
+
+
+def ingest_seed_jobs(db: Session) -> Dict[str, int]:
+    """
+    Ingest seed job data for testing and demos.
+
+    Use this when external APIs are unavailable or for initial bootstrap.
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dict with ingestion stats: {inserted, updated, skipped, errors}
+    """
+    stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+
+    logger.info("Starting seed data ingestion")
+
+    seed_jobs = generate_seed_jobs()
+
+    for job_data in seed_jobs:
+        try:
+            # Check if job already exists (deduplication)
+            existing = db.query(JobPosting).filter(
+                and_(
+                    JobPosting.external_id == job_data["external_id"],
+                    JobPosting.source == "seed"
+                )
+            ).first()
+
+            if existing:
+                # Update existing job
+                for key, value in job_data.items():
+                    setattr(existing, key, value)
+                existing.updated_at = datetime.utcnow()
+                stats["updated"] += 1
+            else:
+                # Insert new job
+                job_posting = JobPosting(**job_data)
+                db.add(job_posting)
+                stats["inserted"] += 1
+
+        except Exception as e:
+            logger.error(f"Error inserting seed job: {str(e)}")
+            stats["errors"] += 1
+            continue
+
+    # Commit all seed jobs at once
+    db.commit()
+
+    logger.info(f"Seed data ingestion complete: {stats}")
     return stats
 
 
