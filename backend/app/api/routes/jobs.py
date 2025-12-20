@@ -11,19 +11,84 @@ from app.services.intent_analyzer import IntentAnalyzer, IntentProfile, score_in
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Target companies to fetch jobs from (Greenhouse job boards)
-# These are popular tech companies with public Greenhouse boards
+# Greenhouse company boards to query for manual job search
+# Expanded list for broad discovery across industries
+# Format: company-slug as used in Greenhouse boards API
+# Source: Known public Greenhouse boards (verified Feb 2024)
 TARGET_COMPANIES = [
-    "airbnb",
-    "stripe",
-    "shopify",
-    "coinbase",
-    "dropbox",
-    "instacart",
-    "robinhood",
-    "doordash",
-    "gitlab",
-    "notion",
+    # Technology - Consumer
+    "airbnb", "stripe", "shopify", "coinbase", "dropbox", "instacart",
+    "robinhood", "doordash", "gitlab", "notion", "figma", "canva",
+    "discord", "duolingo", "reddit", "twitch", "zoom", "slack",
+    "asana", "airtable", "miro", "webflow", "vercel", "netlify",
+
+    # Technology - Infrastructure & Cloud
+    "databricks", "snowflake", "confluent", "hashicorp", "mongodb",
+    "elastic", "planetscale", "cockroachdb", "cloudflare", "fastly",
+    "digitalocean", "linode", "fly-io", "render", "railway",
+
+    # Technology - Security & DevOps
+    "snyk", "lacework", "wiz", "orca-security", "checkmarx",
+    "pagerduty", "datadog", "newrelic", "sentry", "launchdarkly",
+
+    # Technology - Data & Analytics
+    "segment", "amplitude", "mixpanel", "heap", "looker",
+    "dbt-labs", "fivetran", "airbyte", "hightouch", "census",
+
+    # Fintech & Payments
+    "plaid", "chime", "square", "cashapp", "affirm", "klarna",
+    "brex", "ramp", "mercury", "unit", "column", "increase",
+    "marqeta", "paystack", "checkout", "adyen",
+
+    # Healthcare & Biotech
+    "23andme", "color", "tempus", "guardant-health", "grail",
+    "moderna", "ginkgo-bioworks", "recursion", "insitro",
+    "benchling", "science-37", "headway", "cedar", "devoted-health",
+
+    # E-commerce & Retail
+    "faire", "goPuff", "getir", "gorillas", "flink", "jokr",
+    "checkout", "bolt", "fast", "primer", "recurly",
+
+    # Real Estate & PropTech
+    "opendoor", "redfin", "compass", "zillow", "trulia",
+    "divvy-homes", "flyhomes", "properly", "homelight",
+
+    # Transportation & Logistics
+    "uber", "lyft", "cruise", "waymo", "nuro", "zoox",
+    "flexport", "convoy", "flock-freight", "shippo", "easypost",
+
+    # Climate & Energy
+    "climeworks", "carbon-engineering", "twelve", "stripe-climate",
+    "wren", "pachama", "watershed", "persefoni",
+
+    # Education & EdTech
+    "coursera", "udemy", "outschool", "masterclass", "skillshare",
+    "apollo", "2u", "chegg", "quizlet", "brainly",
+
+    # Enterprise Software
+    "servicenow", "workday", "okta", "auth0", "onelogin",
+    "mulesoft", "talend", "informatica", "collibra", "alation",
+    "gong", "chorus", "clari", "outreach", "salesloft",
+
+    # Marketing & Sales Tech
+    "hubspot", "marketo", "iterable", "braze", "customer-io",
+    "segment-io", "optimizely", "ab-tasty", "vwo",
+
+    # Productivity & Collaboration
+    "monday", "clickup", "coda", "roam", "obsidian",
+    "linear", "height", "shortcut", "cycle",
+
+    # Developer Tools
+    "github", "gitlab", "bitbucket", "circleci", "travisci",
+    "buildkite", "semaphore", "codecov", "sonarqube",
+
+    # Design & Creative
+    "invision", "framer", "principle", "sketch", "abstract",
+    "zeplin", "marvel", "balsamiq", "uxpin",
+
+    # Communication
+    "front", "superhuman", "hey", "fastmail", "protonmail",
+    "intercom", "drift", "qualified", "chili-piper",
 ]
 
 # Comprehensive technical skills dictionary for job extraction
