@@ -619,13 +619,118 @@ def _extract_skills_from_text(text: str, known_skills: List[str]) -> List[str]:
     return found_skills
 
 
-@router.get("/discover")
-def discover_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+@router.get("/search")
+def search_jobs(
+    keyword: Optional[str] = None,
+    location: Optional[str] = None,
+    company: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> List[Dict[str, Any]]:
     """
-    Discover jobs from Greenhouse job boards based on active resume skills.
+    Universal job search - no resume required.
 
-    Fetches available jobs from configured companies' Greenhouse boards
-    and matches them against the user's resume.
+    Search jobs from Greenhouse job boards by keyword, location, or company.
+    Returns unscored, unfiltered job listings for browsing.
+
+    Query Parameters:
+        keyword: Search in job title (e.g., "engineer", "python", "backend")
+        location: Filter by location (e.g., "remote", "san francisco", "usa")
+        company: Filter by specific company slug (e.g., "stripe", "airbnb")
+
+    Returns:
+        List of jobs matching search criteria, sorted by company and title
+    """
+    logger.info(
+        "job_search.start",
+        extra={
+            "keyword": keyword,
+            "location": location,
+            "company": company
+        }
+    )
+
+    # Determine which companies to fetch from
+    companies_to_fetch = [company] if company and company in TARGET_COMPANIES else TARGET_COMPANIES
+
+    # Fetch jobs from target companies
+    all_jobs = []
+    for company_slug in companies_to_fetch:
+        try:
+            company_jobs = fetch_all_greenhouse_jobs(company_slug)
+            for job in company_jobs:
+                job["_company_slug"] = company_slug
+            all_jobs.extend(company_jobs)
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch jobs from {company_slug}",
+                extra={"error": str(e)}
+            )
+            continue
+
+    # Apply search filters
+    filtered_jobs = []
+    for job in all_jobs:
+        job_title = job.get("title", "").lower()
+        job_location = job.get("location", {}).get("name", "").lower()
+        job_company = job.get("company_name", "").lower()
+
+        # Keyword filter (search in title)
+        if keyword and keyword.lower() not in job_title:
+            continue
+
+        # Location filter
+        if location and location.lower() not in job_location:
+            continue
+
+        # Company filter (already handled in fetch, but double-check)
+        if company and company.lower() not in job_company:
+            continue
+
+        # Build simplified job response (no scoring, no matching)
+        filtered_jobs.append({
+            "id": str(job.get("id")),
+            "title": job.get("title", ""),
+            "company": job.get("company_name", "Unknown Company"),
+            "url": job.get("absolute_url", ""),
+            "location": job.get("location", {}).get("name", "Location not specified"),
+            "description": job.get("content", "")[:200] + "..." if job.get("content") else "",
+            "source": "greenhouse"
+        })
+
+    # Sort by company, then title
+    filtered_jobs.sort(key=lambda x: (x["company"], x["title"]))
+
+    logger.info(
+        "job_search.result",
+        extra={
+            "jobs_fetched": len(all_jobs),
+            "jobs_returned": len(filtered_jobs),
+            "keyword": keyword,
+            "location": location,
+            "company": company
+        }
+    )
+
+    return filtered_jobs
+
+
+@router.get("/recommended")
+def get_recommended_jobs(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    AI-powered job recommendations based on active resume.
+
+    Requires active resume with complete parsing. Uses skill matching
+    and career intent analysis to provide personalized job recommendations.
+
+    This endpoint preserves the original /discover logic but is now
+    explicitly positioned as an optional enhancement to basic job search.
+
+    Raises:
+        404: No active resume found
+        400: Resume parsing not complete
+
+    Returns:
+        List of jobs with match scores, ranked by relevance
     """
     # Get active resume
     resume = db.query(Resume).filter(Resume.is_active == True).first()

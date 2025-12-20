@@ -1,22 +1,77 @@
 {% extends "base.html" %}
 
-{% block title %}Job Recommendations - AppTrack{% endblock %}
+{% block title %}Job Search - AppTrack{% endblock %}
 
 {% block content %}
 <div class="card">
-    <h2>Recommended Jobs</h2>
-    <p>Based on your resume, here are the top job matches for you.</p>
+    <h2>Job Search</h2>
+    <p>Browse jobs from top tech companies. Upload a resume to get AI-powered recommendations.</p>
+
+    <!-- Search Form -->
+    <form id="search-form" style="margin-top: 1.5rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+            <div>
+                <label for="search-keyword" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Keyword</label>
+                <input
+                    type="text"
+                    id="search-keyword"
+                    placeholder="e.g., engineer, python, backend"
+                    style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;"
+                >
+            </div>
+            <div>
+                <label for="search-location" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Location</label>
+                <input
+                    type="text"
+                    id="search-location"
+                    placeholder="e.g., remote, san francisco"
+                    style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;"
+                >
+            </div>
+            <div>
+                <label for="search-company" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Company</label>
+                <input
+                    type="text"
+                    id="search-company"
+                    placeholder="e.g., stripe, airbnb"
+                    style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;"
+                >
+            </div>
+            <div>
+                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.5rem;">
+                    Search
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Optional: AI-Powered Recommendations (only shown if resume exists) -->
+<div id="recommended-section" class="card hide" style="margin-top: 2rem; background: #f8f9fa; border-left: 4px solid #007bff;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h3 style="margin: 0;">✨ Recommended for You</h3>
+            <p style="margin: 0.5rem 0 0 0; color: #666;">AI-matched jobs based on your resume</p>
+        </div>
+        <button onclick="loadRecommendedJobs()" class="btn btn-secondary" style="white-space: nowrap;">
+            Load Recommendations
+        </button>
+    </div>
+    <div id="recommended-loading" class="loading hide" style="margin-top: 1rem;">
+        <p>Analyzing your resume and matching jobs...</p>
+    </div>
+    <div id="recommended-jobs-container" style="margin-top: 1rem;"></div>
 </div>
 
 <div id="loading" class="loading">
-    <p>Loading job recommendations...</p>
+    <p>Loading jobs...</p>
 </div>
 
 <div id="jobs-container"></div>
 
 <div id="empty-state" class="empty-state hide">
-    <h3>No Job Recommendations</h3>
-    <p>No jobs found matching your resume. Please try uploading a different resume.</p>
+    <h3>No Jobs Found</h3>
+    <p>No jobs found. Try adjusting your search filters.</p>
 </div>
 {% endblock %}
 
