@@ -7,16 +7,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('empty-state');
     const searchForm = document.getElementById('search-form');
 
-    // Set up search form
+    // Hide loading, show initial empty state
+    loading.classList.add('hide');
+    emptyState.classList.remove('hide');
+
+    // Set up search form - ONLY way to trigger search
     if (searchForm) {
         searchForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             await performSearch();
         });
     }
-
-    // Load initial jobs (all jobs, no filters)
-    await performSearch();
 });
 
 async function performSearch() {
