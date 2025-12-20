@@ -731,7 +731,7 @@ def search_jobs(
     # Order by newest first, limit to 100 results for performance
     jobs = query.order_by(JobPosting.created_at.desc()).limit(100).all()
 
-    # Convert ORM objects to API response format
+    # Convert ORM objects to API response format with traceability fields
     filtered_jobs = []
     for job in jobs:
         filtered_jobs.append({
@@ -741,7 +741,10 @@ def search_jobs(
             "url": job.external_url or "",
             "location": job.location or "Location not specified",
             "description": (job.description[:200] + "...") if job.description else "",
-            "source": job.source or "unknown"
+            "source": job.source or "unknown",
+            "industry": job.industry,
+            "posted_at": job.posted_at.isoformat() if job.posted_at else None,
+            "source_query": job.source_query,
         })
 
     logger.info(

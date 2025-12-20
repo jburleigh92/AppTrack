@@ -16,6 +16,8 @@ from app.services.job_ingestion import (
     get_ingestion_stats,
     clean_expired_jobs
 )
+from app.services.validated_ingestion import ingest_validated_jobs, get_index_health
+import os
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 logger = logging.getLogger(__name__)
@@ -94,70 +96,76 @@ def scrape_complete_callback(
 
 @router.post("/jobs/ingest")
 def trigger_job_ingestion(
-    source: str = "seed",
+    source: str = "production",
+    queries_per_industry: int = 2,
+    max_per_query: int = 50,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Manually trigger job ingestion.
 
     Args:
-        source: Data source - "seed" (fast), "greenhouse" (slow), or "all"
+        source: Data source - "production" (SerpAPI with validation), "seed" (demo data)
+        queries_per_industry: For production - queries per industry (default: 2)
+        max_per_query: For production - max jobs per query (default: 50)
 
     Returns:
-        Ingestion statistics
+        Ingestion statistics and audit log
 
     Example:
+        POST /internal/jobs/ingest?source=production
         POST /internal/jobs/ingest?source=seed
-        POST /internal/jobs/ingest?source=greenhouse
-        POST /internal/jobs/ingest?source=all
+        POST /internal/jobs/ingest?source=production&queries_per_industry=3&max_per_query=100
     """
     logger.info(f"Manual job ingestion triggered: source={source}")
 
-    results = {}
-
     try:
-        if source == "seed":
-            # Ingest seed data only (fast)
+        if source == "production":
+            # Production ingestion with SerpAPI and validation
+            api_key = os.environ.get("SERPAPI_API_KEY")
+            if not api_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="SERPAPI_API_KEY environment variable not set. Cannot run production ingestion."
+                )
+
+            audit = ingest_validated_jobs(
+                db=db,
+                api_key=api_key,
+                queries_per_industry=queries_per_industry,
+                max_jobs_per_query=max_per_query
+            )
+
+            # Get index health
+            index_health = get_index_health(db)
+
+            return {
+                "status": "success",
+                "audit": audit.to_dict(),
+                "index_health": index_health
+            }
+
+        elif source == "seed":
+            # Ingest seed data only (for testing/demos)
             stats = ingest_seed_jobs(db)
-            results["seed"] = stats
+            index_stats = get_ingestion_stats(db)
 
-        elif source == "greenhouse":
-            # Ingest from Greenhouse (slow)
-            greenhouse_companies = [
-                "airbnb", "stripe", "shopify", "coinbase", "dropbox",
-                "gitlab", "notion", "figma", "databricks", "snowflake",
-            ]
-            stats = ingest_greenhouse_jobs(db, greenhouse_companies)
-            results["greenhouse"] = stats
-
-        elif source == "all":
-            # Ingest from all sources
-            seed_stats = ingest_seed_jobs(db)
-            results["seed"] = seed_stats
-
-            greenhouse_companies = [
-                "airbnb", "stripe", "shopify", "coinbase", "dropbox",
-                "gitlab", "notion", "figma", "databricks", "snowflake",
-            ]
-            greenhouse_stats = ingest_greenhouse_jobs(db, greenhouse_companies)
-            results["greenhouse"] = greenhouse_stats
+            return {
+                "status": "success",
+                "results": {
+                    "seed": stats,
+                    "index_stats": index_stats
+                }
+            }
 
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid source: {source}. Use 'seed', 'greenhouse', or 'all'"
+                detail=f"Invalid source: {source}. Use 'production' or 'seed'"
             )
 
-        # Get final index stats
-        index_stats = get_ingestion_stats(db)
-        results["index_stats"] = index_stats
-
-        logger.info(f"Job ingestion complete: {results}")
-        return {
-            "status": "success",
-            "results": results
-        }
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Job ingestion failed: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -169,16 +177,16 @@ def trigger_job_ingestion(
 @router.get("/jobs/stats")
 def get_job_index_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
-    Get current job index statistics.
+    Get comprehensive job index health statistics.
 
     Returns:
-        Total jobs, jobs by source, latest update time
+        Total jobs, jobs by source/industry, traceability metrics, date ranges
     """
     try:
-        stats = get_ingestion_stats(db)
+        health = get_index_health(db)
         return {
             "status": "success",
-            "stats": stats
+            "health": health
         }
     except Exception as e:
         logger.error(f"Failed to get stats: {str(e)}", exc_info=True)
